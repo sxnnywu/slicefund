@@ -73,6 +73,9 @@ export default function PanelMarkets() {
       if (platform === "all" || platform === "kalshi") {
         endpoints.push(fetchPlatformMarkets("/api/kalshi/trending", "Kalshi"));
       }
+      if (platform === "all" || platform === "manifold") {
+        endpoints.push(fetchPlatformMarkets("/api/manifold/trending", "Manifold"));
+      }
       
       const results = await Promise.all(endpoints);
       const allMarkets = results.flat();
@@ -128,7 +131,7 @@ export default function PanelMarkets() {
         {error && <div style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: 20 }}>{error}</div>}
         {!loading && !error && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
         {!loading && !error && markets.map((m, i) => {
-          const odds = parsePrice(m.outcomePrices || m.yes_price);
+          const odds = parsePrice(m.outcomePrices || m.yes_price || m.probability);
           const vol = formatVolume(m.volume, m.platform);
           const end = (m.endDate || m.closeDate) ? new Date(m.endDate || m.closeDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
           const metaVolumeLabel = m.platform === "Kalshi" ? `${vol} VOL` : `${vol} VOL`;
