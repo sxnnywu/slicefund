@@ -3,6 +3,7 @@ import React from "react";
 const NAV = [
   { id: "home", label: "Dashboard", icon: "▦" },
   { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
+  { id: "polymarket", label: "Polymarket", icon: "🟣", badge: "LIVE" },
   { id: "baskets", label: "My Baskets", icon: "📈" },
   { id: "markets", label: "Markets", icon: "📊" },
 ];
@@ -68,13 +69,18 @@ const styles = {
     textTransform: "uppercase", padding: "0 24px", margin: "16px 0 8px",
   },
   item: {
-    display: "flex", alignItems: "center", gap: 10, padding: "10px 24px", fontSize: 14,
-    fontWeight: 500, color: "var(--text-mid)", cursor: "pointer", margin: "0 8px", borderRadius: 10,
-    borderLeft: "2px solid transparent", transition: "all 0.15s",
+    display: "flex", alignItems: "center", gap: 10,
+    paddingTop: 10, paddingBottom: 10, paddingLeft: 24, paddingRight: 24,
+    fontSize: 14, fontWeight: 500, color: "var(--text-mid)", cursor: "pointer",
+    marginTop: 0, marginBottom: 0, marginLeft: 8, marginRight: 8,
+    borderRadius: 10,
+    borderLeftWidth: 2, borderLeftStyle: "solid", borderLeftColor: "transparent",
+    transition: "all 0.15s",
   },
   itemActive: {
     background: "var(--blue-light)", color: "var(--blue)", fontWeight: 600,
-    borderLeftColor: "var(--blue)", borderRadius: "0 10px 10px 0", marginLeft: 0, paddingLeft: 22,
+    borderLeftColor: "var(--blue)", borderRadius: "0 10px 10px 0",
+    marginLeft: 0, paddingLeft: 22,
   },
   badge: {
     marginLeft: "auto", background: "var(--blue-mid)", color: "var(--blue)",
