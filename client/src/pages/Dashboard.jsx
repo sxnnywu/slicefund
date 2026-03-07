@@ -11,6 +11,7 @@ import PanelMarkets from "../panels/PanelMarkets.jsx";
 import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
+import PanelPolymarket from "../panels/PanelPolymarket.jsx";
 
 export default function Dashboard() {
   const [panel, setPanel] = useState("home");
@@ -59,6 +60,8 @@ export default function Dashboard() {
     switch (panel) {
       case "thesis":
         return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} />;
+      case "polymarket":
+        return <PanelPolymarket />;
       case "baskets":
         return <PanelBaskets />;
       case "markets":

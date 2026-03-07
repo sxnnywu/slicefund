@@ -173,6 +173,63 @@ app.post("/api/analyze", async (req, res) => {
   }
 });
 
+// Direct Polymarket browse endpoint (no AI needed)
+app.get("/api/polymarket/trending", async (req, res) => {
+  try {
+    const response = await axios.get("https://gamma-api.polymarket.com/markets", {
+      params: {
+        _limit: 20,
+        closed: false,
+        active: true,
+        _sort: "volume",
+        _order: "desc",
+      },
+      timeout: 10000,
+    });
+    const markets = (response.data || []).map((m) => ({
+      id: m.id,
+      question: m.question,
+      slug: m.slug,
+      outcomePrices: m.outcomePrices,
+      outcomes: m.outcomes,
+      volume: m.volume,
+      liquidity: m.liquidity,
+      endDate: m.endDate,
+      image: m.image,
+      description: (m.description || "").slice(0, 300),
+    }));
+    res.json({ markets, count: markets.length });
+  } catch (err) {
+    console.error("Polymarket fetch error:", err.message);
+    res.status(500).json({ error: "Failed to fetch from Polymarket", details: err.message });
+  }
+});
+
+app.get("/api/polymarket/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: "Query param 'q' required" });
+    const response = await axios.get("https://gamma-api.polymarket.com/markets", {
+      params: { _limit: 15, closed: false, active: true, _q: q },
+      timeout: 8000,
+    });
+    const markets = (response.data || []).map((m) => ({
+      id: m.id,
+      question: m.question,
+      slug: m.slug,
+      outcomePrices: m.outcomePrices,
+      outcomes: m.outcomes,
+      volume: m.volume,
+      liquidity: m.liquidity,
+      endDate: m.endDate,
+      image: m.image,
+    }));
+    res.json({ markets, count: markets.length, query: q });
+  } catch (err) {
+    res.status(500).json({ error: "Search failed", details: err.message });
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
