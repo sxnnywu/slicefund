@@ -1,0 +1,129 @@
+import React, { useState } from "react";
+import Sidebar from "../components/Sidebar.jsx";
+import ThesisCard from "../components/ThesisCard.jsx";
+import ActiveMarkets from "../components/ActiveMarkets.jsx";
+import PastSearches from "../components/PastSearches.jsx";
+import RightPanel from "../components/RightPanel.jsx";
+import ResultsPanel from "../components/ResultsPanel.jsx";
+
+export default function Dashboard() {
+  const [results, setResults] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const [searches, setSearches] = useState([]);
+
+  const analyze = async (thesis) => {
+    setLoading(true);
+    setError(null);
+    setResults(null);
+    try {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ thesis }),
+      });
+      if (!res.ok) {
+        let msg = "Request failed";
+        try { const d = await res.json(); msg = d.details || d.error || msg; } catch (_) {}
+        throw new Error(msg);
+      }
+      const data = await res.json();
+      setResults(data);
+      setSearches((prev) => [
+        { thesis, picks: data.picks.length, avgOdds: data.picks.length > 0
+          ? (data.picks.reduce((s, p) => s + (parseFloat(p.current_price) || 0), 0) / data.picks.length).toFixed(2)
+          : "—",
+          volume: data.picks.reduce((s, p) => s + (Number(p.volume) || 0), 0),
+          time: "Just now",
+        },
+        ...prev,
+      ].slice(0, 10));
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  return (
+    <div style={{ display: "flex", minHeight: "100vh", position: "relative", zIndex: 1 }}>
+      <Sidebar />
+      <div style={styles.main}>
+        <div style={styles.topbar}>
+          <div>
+            <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.3 }}>Good evening, James 👋</h2>
+            <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
+              {results ? `${results.picks.length} picks found` : "3 arb opportunities detected · Markets are active"}
+            </p>
+          </div>
+          <div style={{ display: "flex", gap: 12 }}>
+            <button style={styles.topBtn}>🔔 Alerts <span style={styles.badge}>3</span></button>
+            <button style={styles.topBtnPrimary}>+ New Thesis</button>
+          </div>
+        </div>
+
+        <div style={styles.statRow}>
+          {[
+            { label: "Active Baskets", value: "7", delta: "↑ 2 this week", color: "var(--green)" },
+            { label: "Avg Basket Yield", value: "+14.2%", delta: "↑ 2.1% vs last month", color: "var(--green)" },
+            { label: "Arb Opportunities", value: "3", delta: "↑ Live now", color: "var(--green)" },
+            { label: "Searches Made", value: String(searches.length || 24), delta: "All time", color: "var(--text-dim)" },
+          ].map((s, i) => (
+            <div key={i} style={styles.statCard}>
+              <div style={styles.statLabel}>{s.label}</div>
+              <div style={styles.statValue}>{s.value}</div>
+              <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6, color: s.color }}>{s.delta}</div>
+            </div>
+          ))}
+        </div>
+
+        <div style={styles.grid}>
+          <div>
+            <ThesisCard onAnalyze={analyze} loading={loading} />
+
+            {error && (
+              <div style={styles.error}>⚠️ {error}</div>
+            )}
+
+            {results && <ResultsPanel data={results} />}
+
+            <ActiveMarkets />
+            <PastSearches searches={searches} />
+          </div>
+          <RightPanel />
+        </div>
+      </div>
+    </div>
+  );
+}
+
+const styles = {
+  main: { flex: 1, overflowY: "auto", padding: "40px 40px", position: "relative", zIndex: 1 },
+  topbar: { display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 36 },
+  topBtn: {
+    display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: 10,
+    border: "1px solid var(--border)", background: "var(--surface)", fontFamily: "'Outfit', sans-serif",
+    fontSize: 13, fontWeight: 600, color: "var(--text-mid)", cursor: "pointer",
+  },
+  topBtnPrimary: {
+    display: "flex", alignItems: "center", gap: 6, padding: "9px 16px", borderRadius: 10,
+    border: "1px solid var(--blue)", background: "var(--blue)", fontFamily: "'Outfit', sans-serif",
+    fontSize: 13, fontWeight: 600, color: "#fff", cursor: "pointer", boxShadow: "0 4px 16px rgba(26,92,255,0.25)",
+  },
+  badge: {
+    background: "var(--red)", color: "#fff", fontSize: 10, fontWeight: 700,
+    padding: "1px 6px", borderRadius: 50, marginLeft: 2,
+  },
+  statRow: { display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 16, marginBottom: 32 },
+  statCard: {
+    background: "var(--surface)", backdropFilter: "blur(16px)", border: "1px solid var(--border)",
+    borderRadius: 16, padding: "20px 22px", boxShadow: "var(--shadow)",
+  },
+  statLabel: { fontSize: 11, fontWeight: 600, letterSpacing: 1.5, color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 },
+  statValue: { fontFamily: "'DM Mono', monospace", fontSize: 28, fontWeight: 500, color: "var(--text)" },
+  grid: { display: "grid", gridTemplateColumns: "1fr 360px", gap: 24, alignItems: "start" },
+  error: {
+    background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12,
+    padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14,
+  },
+};
