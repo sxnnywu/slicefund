@@ -214,7 +214,6 @@ async function searchManifold(keywords) {
           params: {
             term: keyword,
             limit: 10,
-            filter: "open",
           },
           timeout: 8000,
         }
@@ -230,7 +229,7 @@ async function searchManifold(keywords) {
             description: market.description || market.textDescription || "",
             outcomePrices: JSON.stringify([market.probability || 0]),
             volume: market.volume || market.volume24Hours || 0,
-            liquidity: market.liquidity || 0,
+            liquidity: market.totalLiquidity || 0,
             endDate: new Date(market.closeTime).toISOString(),
             slug: market.slug,
             platform: 'Manifold',
@@ -853,25 +852,28 @@ app.get("/api/manifold/trending", async (req, res) => {
   try {
     const response = await axios.get("https://api.manifold.markets/v0/markets", {
       params: {
-        limit: 20,
-        sort: "liquidity",
-        filter: "open",
+        limit: 100,
       },
       timeout: 10000,
     });
     
-    const markets = (response.data || []).map((m) => ({
-      id: m.id,
-      question: m.question,
-      slug: m.slug,
-      url: m.url,
-      probability: m.probability || 0,
-      volume: m.volume || m.volume24Hours || 0,
-      liquidity: m.liquidity || 0,
-      closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
-      creatorName: m.creatorName,
-      creatorUsername: m.creatorUsername,
-    }));
+    // Filter out resolved markets and sort by liquidity
+    const markets = (response.data || [])
+      .filter((m) => !m.isResolved && m.closeTime > Date.now())
+      .map((m) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        url: m.url,
+        probability: m.probability || 0,
+        volume: m.volume || m.volume24Hours || 0,
+        liquidity: m.totalLiquidity || 0,
+        closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+        creatorName: m.creatorName,
+        creatorUsername: m.creatorUsername,
+      }))
+      .sort((a, b) => b.liquidity - a.liquidity)
+      .slice(0, 20);
     
     res.json({ markets, count: markets.length });
   } catch (err) {
@@ -888,24 +890,27 @@ app.get("/api/manifold/search", async (req, res) => {
     const response = await axios.get("https://api.manifold.markets/v0/search-markets", {
       params: {
         term: q,
-        limit: 15,
-        filter: "open",
+        limit: 50,
       },
       timeout: 8000,
     });
     
-    const markets = (response.data || []).map((m) => ({
-      id: m.id,
-      question: m.question,
-      slug: m.slug,
-      url: m.url,
-      probability: m.probability || 0,
-      volume: m.volume || m.volume24Hours || 0,
-      liquidity: m.liquidity || 0,
-      closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
-      creatorName: m.creatorName,
-      creatorUsername: m.creatorUsername,
-    }));
+    // Filter out resolved markets
+    const markets = (response.data || [])
+      .filter((m) => !m.isResolved && m.closeTime > Date.now())
+      .map((m) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        url: m.url,
+        probability: m.probability || 0,
+        volume: m.volume || m.volume24Hours || 0,
+        liquidity: m.totalLiquidity || 0,
+        closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+        creatorName: m.creatorName,
+        creatorUsername: m.creatorUsername,
+      }))
+      .slice(0, 15);
     
     res.json({ markets, count: markets.length, query: q });
   } catch (err) {
