@@ -10,6 +10,17 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     dedupe: ["react", "react-dom"],
+  define: {
+    "process.env": {},
+    global: "globalThis",
+  },
+  resolve: {
+    alias: {
+      buffer: "buffer",
+    },
+  },
+  optimizeDeps: {
+    include: ["buffer", "@solana/web3.js"],
   },
   server: {
     port: 5173,

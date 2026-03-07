@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Sidebar from "../components/Sidebar.jsx";
 import ThesisCard from "../components/ThesisCard.jsx";
@@ -14,6 +14,32 @@ import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
+import WalletConnect from "../components/WalletConnect.jsx";
+
+const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
+
+function loadStoredSearches() {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const raw = JSON.parse(localStorage.getItem(SEARCH_HISTORY_KEY) || "[]");
+    if (!Array.isArray(raw)) return [];
+
+    return raw
+      .filter((entry) => entry && typeof entry === "object" && typeof entry.thesis === "string")
+      .map((entry) => ({
+        thesis: entry.thesis,
+        picks: Number.isFinite(Number(entry.picks)) ? Number(entry.picks) : 0,
+        avgOdds: typeof entry.avgOdds === "string" ? entry.avgOdds : "—",
+        volume: Number.isFinite(Number(entry.volume)) ? Number(entry.volume) : 0,
+        time: typeof entry.time === "string" ? entry.time : "Earlier",
+      }))
+      .slice(0, 25);
+  } catch (error) {
+    console.error("Failed to load thesis history:", error);
+    return [];
+  }
+}
 
 export default function Dashboard() {
   const { user } = useAuth0();
@@ -21,7 +47,17 @@ export default function Dashboard() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
-  const [searches, setSearches] = useState([]);
+  const [searches, setSearches] = useState(() => loadStoredSearches());
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.setItem(SEARCH_HISTORY_KEY, JSON.stringify(searches.slice(0, 25)));
+    } catch (saveError) {
+      console.error("Failed to persist thesis history:", saveError);
+    }
+  }, [searches]);
 
   const rawFirstName =
     user?.given_name ||
@@ -36,11 +72,17 @@ export default function Dashboard() {
     setLoading(true);
     setError(null);
     setResults(null);
+
+    const history = searches
+      .map((entry) => entry?.thesis)
+      .filter((value) => typeof value === "string" && value.trim().length > 0)
+      .slice(0, 10);
+
     try {
       const res = await fetch("/api/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thesis }),
+        body: JSON.stringify({ thesis, history }),
       });
       if (!res.ok) {
         let msg = "Request failed";
@@ -59,7 +101,7 @@ export default function Dashboard() {
           volume: data.picks.reduce((s, p) => s + (Number(p.volume) || 0), 0),
           time: "Just now",
         },
-        ...prev,
+        ...prev.filter((entry) => entry?.thesis !== thesis),
       ].slice(0, 10));
     } catch (err) {
       setError(err.message);
@@ -96,9 +138,10 @@ export default function Dashboard() {
                   {results ? `${results.picks.length} picks found` : "3 arb opportunities detected · Markets are active"}
                 </p>
               </div>
-              <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <button className="sf-btn-smooth" style={styles.topBtn} onClick={() => setPanel("arb")}>🔔 Alerts <span style={styles.badge}>3</span></button>
                 <button className="sf-btn-smooth" style={styles.topBtnPrimary} onClick={() => setPanel("thesis")}>+ New Thesis</button>
+                <WalletConnect />
               </div>
             </div>
             <div style={styles.statRow}>
