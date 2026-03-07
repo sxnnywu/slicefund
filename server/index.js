@@ -11,6 +11,8 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import { mapThesisToMarkets } from "../ai/thesisMapper.js";
 import { scoreArbOpportunity } from "../ai/arbScorer.js";
+import { analyzeThesis } from "../agents/thesisResearcher.js";
+import { checkBasketRebalance } from "../agents/indexRebalancer.js";
 
 const app = express();
 app.use(cors());
@@ -257,6 +259,19 @@ app.post("/api/analyze", async (req, res) => {
       console.error("    Thesis mapping failed:", thesisMappingError);
     }
 
+    // ThesisResearcher agent from Backboard
+    console.log("  → ThesisResearcher agent...");
+    let agentAnalysis = null;
+    let agentAnalysisError = null;
+
+    try {
+      agentAnalysis = await analyzeThesis(thesis);
+      console.log(`    Agent response received (${agentAnalysis?.content?.length || 0} chars)`);
+    } catch (agentError) {
+      agentAnalysisError = agentError.message;
+      console.error("    Agent analysis failed:", agentAnalysisError);
+    }
+
     res.json({
       thesis,
       keywords,
@@ -266,6 +281,8 @@ app.post("/api/analyze", async (req, res) => {
       rankingStrategy,
       thesisMapping,
       thesisMappingError,
+      agentAnalysis,
+      agentAnalysisError,
     });
   } catch (err) {
     console.error("Analysis error:", err);
@@ -463,6 +480,33 @@ app.post("/api/scan", async (req, res) => {
   } catch (err) {
     console.error("Scan error:", err.message);
     res.status(500).json({ error: "Scan failed", details: err.message });
+  }
+});
+
+// Basket rebalancing endpoint: checks if basket needs rebalancing
+app.post("/api/basket/rebalance", async (req, res) => {
+  try {
+    const { basket } = req.body;
+
+    if (!Array.isArray(basket) || basket.length === 0) {
+      return res.status(400).json({ error: "basket array is required and must not be empty" });
+    }
+
+    console.log(`[/api/basket/rebalance] Checking ${basket.length} positions`);
+
+    // Send basket to IndexRebalancer agent
+    const response = await checkBasketRebalance(basket);
+
+    console.log(`  ✓ Rebalancer response received`);
+
+    res.json({
+      basket,
+      rebalanceAnalysis: response,
+      timestamp: new Date().toISOString(),
+    });
+  } catch (err) {
+    console.error("Basket rebalance error:", err.message);
+    res.status(500).json({ error: "Basket rebalance failed", details: err.message });
   }
 });
 

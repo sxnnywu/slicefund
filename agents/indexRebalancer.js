@@ -155,6 +155,35 @@ export async function saveIds(assistantId, threadId) {
   }
 }
 
+/**
+ * Check basket for rebalancing needs using IndexRebalancer agent
+ * @param {Array} basket - Array of {market, platform, target_weight, current_weight}
+ * Returns the agent's rebalancing recommendations
+ */
+export async function checkBasketRebalance(basket) {
+  let assistantId = process.env.INDEX_REBALANCER_ASSISTANT_ID;
+  let threadId = process.env.INDEX_REBALANCER_THREAD_ID;
+
+  // Create or reuse assistant
+  if (!assistantId) {
+    assistantId = await createAssistant();
+    threadId = await createThread(assistantId);
+    await saveIds(assistantId, threadId);
+    process.env.INDEX_REBALANCER_ASSISTANT_ID = assistantId;
+    process.env.INDEX_REBALANCER_THREAD_ID = threadId;
+  }
+
+  // Create thread if missing
+  if (!threadId) {
+    threadId = await createThread(assistantId);
+  }
+
+  // Send basket to agent
+  const basketStr = JSON.stringify(basket);
+  const response = await sendMessage(threadId, `Basket: ${basketStr}`);
+  return response;
+}
+
 export async function main() {
   let assistantId = process.env.INDEX_REBALANCER_ASSISTANT_ID;
   let threadId = process.env.INDEX_REBALANCER_THREAD_ID;

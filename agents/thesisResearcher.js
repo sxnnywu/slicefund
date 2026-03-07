@@ -154,6 +154,33 @@ export async function saveIds(assistantId, threadId) {
 	}
 }
 
+/**
+ * Analyze a thesis using the ThesisResearcher agent
+ * Returns the agent's response with market recommendations
+ */
+export async function analyzeThesis(thesis) {
+	let assistantId = process.env.THESIS_RESEARCHER_ASSISTANT_ID;
+	let threadId = process.env.THESIS_RESEARCHER_THREAD_ID;
+
+	// Create or reuse assistant
+	if (!assistantId) {
+		assistantId = await createAssistant();
+		threadId = await createThread(assistantId);
+		await saveIds(assistantId, threadId);
+		process.env.THESIS_RESEARCHER_ASSISTANT_ID = assistantId;
+		process.env.THESIS_RESEARCHER_THREAD_ID = threadId;
+	}
+
+	// Create thread if missing
+	if (!threadId) {
+		threadId = await createThread(assistantId);
+	}
+
+	// Send thesis to agent
+	const response = await sendMessage(threadId, `Thesis: ${thesis}`);
+	return response;
+}
+
 export async function main() {
 	let assistantId = process.env.THESIS_RESEARCHER_ASSISTANT_ID;
 	let threadId = process.env.THESIS_RESEARCHER_THREAD_ID;
