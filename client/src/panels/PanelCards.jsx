@@ -16,7 +16,7 @@ export default function PanelCards() {
           <div key={i} style={s.row}>
             <div style={s.preview}>
               <div style={s.previewBar} />
-              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "'DM Mono',monospace", letterSpacing: 2, marginBottom: 6 }}>BACKBOARD</div>
+              <div style={{ fontSize: 9, color: "rgba(255,255,255,0.3)", fontFamily: "'DM Mono',monospace", letterSpacing: 2, marginBottom: 6 }}>SLICEFUND</div>
               <div style={{ fontSize: 11, fontWeight: 700, color: "#fff", lineHeight: 1.3 }}>"{c.thesis}"</div>
             </div>
             <div style={{ flex: 1 }}>
