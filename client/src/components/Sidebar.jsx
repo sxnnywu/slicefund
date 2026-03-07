@@ -26,7 +26,6 @@ export default function Sidebar({ activePanel, onNavigate }) {
     "User";
   const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
   const avatarInitial = displayName.charAt(0).toUpperCase();
-  const subLabel = user?.email || "Authenticated";
 
   return (
     <div style={styles.sidebar}>
@@ -59,11 +58,18 @@ export default function Sidebar({ activePanel, onNavigate }) {
         </div>
       ))}
       <div style={styles.bottom}>
-        <div className="sf-user-chip-smooth" style={styles.user}>
-          <div style={styles.avatar}>{avatarInitial}</div>
-          <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</div>
-            <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "'DM Mono', monospace" }}>{subLabel}</div>
+        <div
+          className="sf-user-chip-smooth"
+          style={{ ...styles.user, ...(activePanel === "profile" ? styles.userActive : {}) }}
+          onClick={() => onNavigate("profile")}
+        >
+          {user?.picture ? (
+            <img src={user.picture} alt={displayName} style={styles.avatarImage} />
+          ) : (
+            <div style={styles.avatar}>{avatarInitial}</div>
+          )}
+          <div style={styles.userText}>
+            <div style={styles.userName}>{displayName}</div>
           </div>
         </div>
       </div>
@@ -103,9 +109,39 @@ const styles = {
     fontSize: 10, fontWeight: 700, padding: "2px 7px", borderRadius: 99,
   },
   bottom: { marginTop: "auto", padding: "16px 24px 0", borderTop: "1px solid var(--border)" },
-  user: { display: "flex", alignItems: "center", gap: 10 },
+  user: {
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    cursor: "pointer",
+    borderRadius: 12,
+    padding: "8px 10px",
+    border: "1px solid transparent",
+  },
+  userActive: {
+    background: "var(--blue-light)",
+    border: "1px solid var(--border)",
+  },
   avatar: {
     width: 34, height: 34, borderRadius: 10, background: "linear-gradient(135deg, var(--blue), #6A9FFF)",
     display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "#fff",
+  },
+  avatarImage: {
+    width: 34,
+    height: 34,
+    borderRadius: 10,
+    objectFit: "cover",
+    border: "1px solid var(--border)",
+  },
+  userText: {
+    minWidth: 0,
+    flex: 1,
+  },
+  userName: {
+    fontSize: 13,
+    fontWeight: 600,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
   },
 };

@@ -14,6 +14,7 @@ import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
 import PanelTrades from "../panels/PanelTrades.jsx";
+import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
 
 const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
@@ -125,7 +126,9 @@ export default function Dashboard() {
       case "index":
         return <PanelIndex />;
       case "cards":
-        return <PanelCards />;
+        return <PanelCards searches={searches} />;
+      case "profile":
+        return <PanelProfile />;
       case "trades":
         return <PanelTrades />;
       default:

@@ -1,33 +1,72 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
-const MARKETS = [
-  { icon: "🇺🇸", q: "Will Trump impose 25%+ tariffs on all Chinese goods by June 2025?", src: "POLYMARKET", exp: "JUN 30", odds: 71 },
-  { icon: "🤖", q: "Will EU AI Act enforcement begin before Q4 2025?", src: "POLYMARKET", exp: "SEP 30", odds: 67 },
-  { icon: "📈", q: "Will the Fed cut rates at the March 2025 FOMC meeting?", src: "KALSHI", exp: "MAR 20", odds: 38 },
-  { icon: "₿", q: "Will Bitcoin hit $100,000 before June 2025?", src: "POLYMARKET", exp: "JUN 1", odds: 54 },
-];
+function getIcon(question) {
+  const q = question.toLowerCase();
+  if (q.includes("trump") || q.includes("tariff")) return "🇺🇸";
+  if (q.includes("ai") || q.includes("tech")) return "🤖";
+  if (q.includes("fed") || q.includes("rate") || q.includes("interest")) return "📈";
+  if (q.includes("bitcoin") || q.includes("crypto") || q.includes("btc")) return "₿";
+  if (q.includes("congress") || q.includes("bill") || q.includes("law")) return "🏛️";
+  if (q.includes("recession") || q.includes("economy")) return "🌍";
+  return "📊";
+}
+
+function parsePrice(outcomePrices) {
+  try {
+    const prices = typeof outcomePrices === "string" ? JSON.parse(outcomePrices) : outcomePrices;
+    if (Array.isArray(prices) && prices.length > 0) {
+      return Math.round(parseFloat(prices[0]) * 100);
+    }
+  } catch {}
+  return null;
+}
 
 export default function ActiveMarkets() {
+  const [markets, setMarkets] = useState([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const fetchMarkets = async () => {
+      try {
+        const res = await fetch("/api/polymarket/trending");
+        if (res.ok) {
+          const data = await res.json();
+          setMarkets((data.markets || []).slice(0, 4));
+        }
+      } catch (err) {
+        console.error("Failed to fetch markets:", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchMarkets();
+  }, []);
+
   return (
     <div style={styles.card}>
       <div style={styles.header}>
         <div style={{ fontSize: 15, fontWeight: 700 }}>Active Markets in Your Baskets</div>
         <div style={styles.action}>View all →</div>
       </div>
-      {MARKETS.map((m, i) => (
-        <div key={i} style={styles.row}>
-          <div style={styles.icon}>{m.icon}</div>
+      {loading && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>Loading...</div>}
+      {!loading && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
+      {!loading && markets.map((m, i) => {
+        const odds = parsePrice(m.outcomePrices);
+        const exp = m.endDate ? new Date(m.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase() : "—";
+        return (
+        <div key={m.id || m.id || i} style={styles.row}>
+          <div style={styles.icon}>{getIcon(m.question)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={styles.q}>{m.q}</div>
-            <div style={styles.meta}>{m.src} · EXPIRES {m.exp}</div>
+            <div style={styles.q}>{m.question}</div>
+            <div style={styles.meta}>POLYMARKET · EXPIRES {exp}</div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
-            <div style={styles.odds}>{m.odds}¢</div>
-            <div style={styles.bar}><div style={{ ...styles.fill, width: `${m.odds}%` }} /></div>
+            <div style={styles.odds}>{odds !== null ? `${odds}¢` : "—"}</div>
+            <div style={styles.bar}><div style={{ ...styles.fill, width: odds !== null ? `${odds}%` : "0%" }} /></div>
             <div style={{ fontSize: 10, color: "var(--text-dim)" }}>YES</div>
           </div>
         </div>
-      ))}
+      );})}
     </div>
   );
 }

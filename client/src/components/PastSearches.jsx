@@ -1,14 +1,20 @@
 import React from "react";
 
-const DEFAULTS = [
-  { thesis: "AI regulation will tighten significantly in 2025", picks: 5, avgOdds: "0.64", volume: 420000, time: "2h ago" },
-  { thesis: "Trump tariff markets are bullish heading into 2025", picks: 4, avgOdds: "0.71", volume: 3100000, time: "5h ago" },
-  { thesis: "Federal Reserve will cut rates before Q3 2025", picks: 4, avgOdds: "0.47", volume: 6200000, time: "Yesterday" },
-  { thesis: "Bitcoin will hit $150k in 2025", picks: 4, avgOdds: "0.43", volume: 8100000, time: "2 days ago" },
-];
-
 export default function PastSearches({ searches = [] }) {
-  const items = searches.length > 0 ? searches : DEFAULTS;
+  if (searches.length === 0) {
+    return (
+      <div style={styles.card}>
+        <div style={styles.header}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Past Searches</div>
+        </div>
+        <div style={{ fontSize: 13, color: "var(--text-dim)", textAlign: "center", padding: 40 }}>
+          No search history yet. Start by analyzing a thesis above.
+        </div>
+      </div>
+    );
+  }
+
+  const items = searches;
 
   return (
     <div style={styles.card}>
