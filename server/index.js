@@ -388,6 +388,84 @@ app.post("/api/arb/score", async (req, res) => {
   }
 });
 
+// Scanner endpoint: validates arb opportunity and formats as alert card
+app.post("/api/scan", async (req, res) => {
+  try {
+    const { question, platformA, priceA, platformB, priceB } = req.body;
+
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "question is required" });
+    }
+
+    if (!platformA || typeof platformA !== "string" || !platformB || typeof platformB !== "string") {
+      return res.status(400).json({ error: "platformA and platformB are required" });
+    }
+
+    const leftPrice = Number(priceA);
+    const rightPrice = Number(priceB);
+
+    if (!Number.isFinite(leftPrice) || !Number.isFinite(rightPrice)) {
+      return res.status(400).json({ error: "priceA and priceB must be valid numbers" });
+    }
+
+    console.log(`[/api/scan] Analyzing: "${question}"`);
+    console.log(`  ${platformA} @ ${leftPrice} vs ${platformB} @ ${rightPrice}`);
+
+    // Score the arb opportunity (Gemini-powered decision)
+    const score = await scoreArbOpportunity(
+      question,
+      platformA,
+      leftPrice,
+      platformB,
+      rightPrice
+    );
+
+    console.log(`  → Decision: ${score.decision}, Spread: ${score.spread}, Confidence: ${score.confidence}`);
+
+    // Map EXPLOIT→CONFIRMED, IGNORE→REJECTED
+    const decision = score.decision === "EXPLOIT" ? "CONFIRMED" : "REJECTED";
+
+    // Generate title from question (shortened)
+    const titleWords = question.split(" ").slice(0, 8).join(" ");
+    const title = titleWords.length > 1 ? titleWords : question.slice(0, 50);
+
+    // Build alert card
+    const alert = {
+      id: `scan-${Date.now()}`,
+      decision,
+      title,
+      summary: score.reasoning || "Market opportunity detected.",
+      platforms: [platformA, platformB],
+      spread: score.spread,
+      adjusted_spread: score.adjusted_spread,
+      confidence: score.confidence,
+      priceA: leftPrice,
+      priceB: rightPrice,
+      question,
+      actions: [
+        {
+          platform: platformA,
+          action: leftPrice < rightPrice ? "BUY" : "SELL",
+        },
+        {
+          platform: platformB,
+          action: leftPrice < rightPrice ? "SELL" : "BUY",
+        },
+      ],
+      urgency: score.urgency || "MEDIUM",
+      risk_flags: score.risk_flags || [],
+      timestamp: new Date().toISOString(),
+    };
+
+    console.log(`  ✓ Alert formatted: ${alert.decision} ${alert.title}`);
+
+    res.json(alert);
+  } catch (err) {
+    console.error("Scan error:", err.message);
+    res.status(500).json({ error: "Scan failed", details: err.message });
+  }
+});
+
 // Health check
 app.get("/api/health", (req, res) => {
   res.json({ status: "ok" });
