@@ -13,6 +13,7 @@ import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
+import PanelProfile from "../panels/PanelProfile.jsx";
 
 export default function Dashboard() {
   const { user } = useAuth0();
@@ -83,6 +84,8 @@ export default function Dashboard() {
         return <PanelIndex />;
       case "cards":
         return <PanelCards />;
+      case "profile":
+        return <PanelProfile />;
       default:
         return (
           <>

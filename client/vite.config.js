@@ -8,6 +8,9 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   root: __dirname,
   plugins: [react()],
+  resolve: {
+    dedupe: ["react", "react-dom"],
+  },
   server: {
     port: 5173,
     proxy: {

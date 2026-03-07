@@ -6,9 +6,9 @@
   "type": "module",
   "scripts": {
     "dev:server": "node server/index.js",
-    "dev:client": "vite --config client/vite.config.js",
+    "dev:client": "npm --prefix client run dev",
     "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "vite build --config client/vite.config.js",
+    "build": "npm --prefix client run build",
     "test:agents": "node agents/runAgentTests.js",
     "test:agents:fresh": "AGENTS_FORCE_NEW_ASSISTANTS=1 node agents/runAgentTests.js",
     "test:agents:integration": "node agents/runIntegrationFlow.js",
