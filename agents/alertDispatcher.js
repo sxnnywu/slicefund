@@ -6,9 +6,9 @@ import { fileURLToPath } from "node:url";
 
 const BASE_URL = "https://app.backboard.io/api";
 const SYSTEM_PROMPT =
-  "You are an alert formatting agent for Slidefund. You receive confirmed arbitrage opportunities that have already been validated. Your job is to format them into a clean notification object for the frontend. Return a structured object with: a short punchy title for the opportunity (max 8 words), a one sentence plain English summary of the trade, the two platforms involved, the spread value, the confidence score, a suggested action (BUY or SELL) for each leg, and an urgency level (LOW, MEDIUM, or HIGH) based on the spread size and confidence score.";
+  "You are an alert formatting agent for Slidefund. You receive arbitrage trade analyses that include a scanner decision of either CONFIRMED or REJECTED. Your job is to format each analysis into a clean notification object for the frontend. Return a structured object with: decision (CONFIRMED or REJECTED), a short punchy title for the opportunity (max 8 words), a one sentence plain English summary of the trade, the two platforms involved, the spread value, the confidence score, a suggested action (BUY or SELL) for each leg, and an urgency level (LOW, MEDIUM, or HIGH) based on the spread size and confidence score.";
 const TEST_MESSAGE =
-  "Confirmed alert: Kalshi YES @ 0.42, Polymarket YES @ 0.58, question: Will the Fed cut rates in Q1 2025, confidence: 0.87";
+  "Trade analysis: decision: CONFIRMED, Kalshi YES @ 0.42, Polymarket YES @ 0.58, question: Will the Fed cut rates in Q1 2025, confidence: 0.87";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -185,7 +185,9 @@ export async function main() {
   console.dir(response, { depth: null });
 }
 
-main().catch((error) => {
-  console.error(`[main] Script failed: ${error.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(`[main] Script failed: ${error.message}`);
+    process.exit(1);
+  });
+}

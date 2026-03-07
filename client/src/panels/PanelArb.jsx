@@ -1,37 +1,148 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
-const ARBS = [
-  { q: "Will Fed cut rates in March 2025?", k: "0.42", p: "0.61", spread: "19¢", liq: "$85K", risk: "Medium", riskColor: "#FFB800" },
-  { q: "Will Trump win 2026 midterms majority?", k: "0.55", p: "0.67", spread: "12¢", liq: "$120K", risk: "Low", riskColor: "var(--green)" },
-  { q: "Will BTC hit $80K before April?", k: "0.38", p: "0.49", spread: "11¢", liq: "$220K", risk: "Low", riskColor: "var(--green)" },
+function getDecisionStyles(decision) {
+  if (decision === "CONFIRMED") {
+    return {
+      cardBg: "var(--green-light)",
+      cardBorder: "1px solid rgba(0,196,140,0.25)",
+      chipBg: "rgba(0,196,140,0.12)",
+      chipColor: "var(--green)",
+      actionLabel: "Execute on Solana →",
+    };
+  }
+
+  return {
+    cardBg: "var(--red-light)",
+    cardBorder: "1px solid rgba(255,77,106,0.22)",
+    chipBg: "rgba(255,77,106,0.12)",
+    chipColor: "var(--red)",
+    actionLabel: "View Analysis →",
+  };
+}
+
+// Sample market opportunities to scan
+const SAMPLE_SCANS = [
+  { question: "Will Fed cut rates in March 2025?", platformA: "Kalshi", priceA: 0.42, platformB: "Polymarket", priceB: 0.61 },
+  { question: "Will Trump win 2026 midterms majority?", platformA: "Kalshi", priceA: 0.55, platformB: "Polymarket", priceB: 0.67 },
+  { question: "Will BTC hit $80K before April?", platformA: "Kalshi", priceA: 0.38, platformB: "Polymarket", priceB: 0.49 },
 ];
 
+async function fetchScan(opportunity) {
+  try {
+    const response = await fetch("http://localhost:3001/api/scan", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(opportunity),
+    });
+
+    if (!response.ok) {
+      console.error(`Scan failed for ${opportunity.question}:`, response.statusText);
+      return null;
+    }
+
+    const result = await response.json();
+    return result;
+  } catch (error) {
+    console.error(`Error scanning ${opportunity.question}:`, error);
+    return null;
+  }
+}
+
 export default function PanelArb() {
+  const [arbs, setArbs] = useState([]);
+  const [isScanning, setIsScanning] = useState(true);
+  const [lastScanTime, setLastScanTime] = useState(null);
+
+  useEffect(() => {
+    const runScans = async () => {
+      setIsScanning(true);
+      const results = await Promise.all(SAMPLE_SCANS.map(fetchScan));
+      const validResults = results.filter((r) => r !== null);
+      setArbs(validResults);
+      setLastScanTime(new Date());
+      setIsScanning(false);
+    };
+
+    runScans();
+  }, []);
+
+  const liveCount = arbs.filter((a) => a.decision === "CONFIRMED").length;
+  const bestSpread = arbs.length > 0 ? Math.max(...arbs.map((a) => a.spread)) : 0;
+  const avgSpread = arbs.length > 0 ? (arbs.reduce((sum, a) => sum + a.spread, 0) / arbs.length).toFixed(2) : 0;
+  const timeSinceLastScan = lastScanTime ? Math.floor((Date.now() - lastScanTime) / 1000) : null;
+
   return (
     <>
-      <div style={{ marginBottom: 36 }}><h2 style={{ fontSize: 24, fontWeight: 700 }}>Arb Scanner</h2><p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>3 live opportunities detected</p></div>
+      <div style={{ marginBottom: 36 }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700 }}>Arb Scanner</h2>
+        <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
+          {isScanning ? "Scanning..." : `${liveCount} live opportunities detected`}
+        </p>
+      </div>
       <div style={s.statRow}>
-        {[{ l: "Live Opportunities", v: "3", c: "var(--green)" }, { l: "Best Spread", v: "19¢" }, { l: "Avg Spread", v: "14¢" }, { l: "Last Scan", v: "0s" }].map((x, i) => (
-          <div key={i} style={s.stat}><div style={s.statL}>{x.l}</div><div style={{ ...s.statV, color: x.c || "var(--text)" }}>{x.v}</div></div>
+        {[
+          { l: "Live Opportunities", v: String(liveCount), c: "var(--green)" },
+          { l: "Best Spread", v: bestSpread > 0 ? `${(bestSpread * 100).toFixed(0)}¢` : "—" },
+          { l: "Avg Spread", v: avgSpread > 0 ? `${(avgSpread * 100).toFixed(0)}¢` : "—" },
+          { l: "Last Scan", v: timeSinceLastScan !== null ? `${timeSinceLastScan}s` : "—" },
+        ].map((x, i) => (
+          <div key={i} className="sf-card-smooth" style={s.stat}>
+            <div style={s.statL}>{x.l}</div>
+            <div style={{ ...s.statV, color: x.c || "var(--text)" }}>{x.v}</div>
+          </div>
         ))}
       </div>
-      <div style={s.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Live Opportunities</div><div style={s.action}>Execute all</div></div>
-        {ARBS.map((a, i) => (
-          <div key={i} style={s.arb}>
-            <div style={{ fontSize: 13, fontWeight: 600, marginBottom: 12 }}>{a.q}</div>
+      <div className="sf-card-smooth" style={s.card}>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>
+            {isScanning ? "Scanning markets..." : `${arbs.length} opportunities analyzed`}
+          </div>
+          <div style={s.action} onClick={() => { /* TODO: re-run scan */ }}>
+            Scan now
+          </div>
+        </div>
+        {arbs.length === 0 && !isScanning && (
+          <div style={{ padding: "24px", color: "var(--text-dim)", textAlign: "center", fontSize: 13 }}>
+            No opportunities found. Try scanning again.
+          </div>
+        )}
+        {arbs.map((a) => (
+          <div key={a.id} className="sf-card-smooth" style={{ ...s.arb, background: getDecisionStyles(a.decision).cardBg, border: getDecisionStyles(a.decision).cardBorder }}>
+            <div style={{ display: "flex", justifyContent: "space-between", gap: 12, marginBottom: 12 }}>
+              <div style={{ fontSize: 13, fontWeight: 600 }}>{a.title}</div>
+              <span style={{ ...s.decisionChip, background: getDecisionStyles(a.decision).chipBg, color: getDecisionStyles(a.decision).chipColor }}>
+                {a.decision}
+              </span>
+            </div>
             <div style={s.platforms}>
-              <div style={s.plat}><div style={s.platN}>KALSHI</div><div style={s.platO}>{a.k}</div></div>
+              <div style={s.plat}>
+                <div style={s.platN}>{a.platforms?.[0]?.toUpperCase()}</div>
+                <div style={s.platO}>{a.priceA?.toFixed(2)}</div>
+              </div>
               <div style={{ color: "var(--text-dim)" }}>→</div>
-              <div style={s.plat}><div style={s.platN}>POLYMARKET</div><div style={s.platO}>{a.p}</div></div>
-              <div style={{ ...s.plat, background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)" }}><div style={{ fontSize: 10, color: "var(--green)", fontFamily: "'DM Mono',monospace" }}>SPREAD</div><div style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--green)" }}>{a.spread}</div></div>
+              <div style={s.plat}>
+                <div style={s.platN}>{a.platforms?.[1]?.toUpperCase()}</div>
+                <div style={s.platO}>{a.priceB?.toFixed(2)}</div>
+              </div>
+              <div style={{ ...s.plat, background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)" }}>
+                <div style={{ fontSize: 10, color: "var(--green)", fontFamily: "'DM Mono',monospace" }}>SPREAD</div>
+                <div style={{ fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--green)" }}>
+                  {(a.spread * 100).toFixed(0)}¢
+                </div>
+              </div>
             </div>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <div style={{ display: "flex", gap: 16 }}>
-                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Liq: <b style={{ color: "var(--text)" }}>{a.liq}</b></span>
-                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>Risk: <b style={{ color: a.riskColor }}>{a.risk}</b></span>
+              <div style={{ display: "flex", gap: 16, flexWrap: "wrap" }}>
+                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  Confidence: <b style={{ color: "var(--text)" }}>{(a.confidence * 100).toFixed(0)}%</b>
+                </span>
+                <span style={{ fontSize: 11, color: "var(--text-dim)" }}>
+                  Urgency: <b style={{ color: "var(--text)" }}>{a.urgency || "—"}</b>
+                </span>
               </div>
-              <button style={s.execBtn}>Execute on Solana →</button>
+              <button className="sf-btn-smooth" style={a.decision === "CONFIRMED" ? s.execBtn : s.analysisBtn}>
+                {getDecisionStyles(a.decision).actionLabel}
+              </button>
             </div>
           </div>
         ))}
@@ -47,9 +158,21 @@ const s = {
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)" },
   action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", cursor: "pointer", fontFamily: "'DM Mono',monospace" },
   arb: { background: "var(--blue-light)", border: "1px solid var(--border)", borderRadius: 12, padding: "18px 20px", marginBottom: 12 },
+  decisionChip: {
+    display: "inline-flex",
+    alignItems: "center",
+    height: 22,
+    borderRadius: 99,
+    padding: "0 10px",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    flexShrink: 0,
+  },
   platforms: { display: "flex", alignItems: "center", gap: 8, marginBottom: 12 },
   plat: { flex: 1, background: "var(--white)", border: "1px solid var(--border)", borderRadius: 8, padding: "8px 10px", textAlign: "center" },
   platN: { fontSize: 10, fontWeight: 600, color: "var(--text-dim)", letterSpacing: 1, fontFamily: "'DM Mono',monospace" },
   platO: { fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--blue)", marginTop: 2 },
   execBtn: { padding: "8px 16px", background: "var(--green)", color: "#fff", border: "none", borderRadius: 8, fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer" },
+  analysisBtn: { padding: "8px 16px", background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border)", borderRadius: 8, fontFamily: "'Outfit',sans-serif", fontSize: 12, fontWeight: 700, cursor: "pointer" },
 };
