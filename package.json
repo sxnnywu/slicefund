@@ -3,8 +3,16 @@
   "version": "1.0.0",
   "description": "",
   "main": "index.js",
+  "type": "module",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev:server": "node server/index.js",
+    "dev:client": "vite --config client/vite.config.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build --config client/vite.config.js",
+    "test:agents": "node agents/runAgentTests.js",
+    "test:agents:fresh": "AGENTS_FORCE_NEW_ASSISTANTS=1 node agents/runAgentTests.js",
+    "test:agents:integration": "node agents/runIntegrationFlow.js",
+    "test:agents:integration:fresh": "AGENTS_FORCE_NEW_ASSISTANTS=1 node agents/runIntegrationFlow.js"
   },
   "repository": {
     "type": "git",
@@ -13,13 +21,6 @@
   "keywords": [],
   "author": "",
   "license": "ISC",
-  "type": "module",
-  "scripts": {
-    "dev:server": "node server/index.js",
-    "dev:client": "vite --config client/vite.config.js",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "vite build --config client/vite.config.js"
-  },
   "dependencies": {
     "@google/generative-ai": "^0.21.0",
     "axios": "^1.7.9",

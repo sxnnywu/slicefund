@@ -126,6 +126,30 @@ node agents/indexRebalancer.js
 node agents/alertDispatcher.js
 ```
 
+### Automated Agent Validation
+
+**Validate each Backboard agent individually (schema/pass-fail checks):**
+```bash
+npm run test:agents
+```
+
+**Same test but force new assistants (ignore saved assistant IDs):**
+```bash
+npm run test:agents:fresh
+```
+
+**Validate integrated multi-agent flows:**
+```bash
+npm run test:agents:integration
+```
+
+**Integration test with fresh assistants:**
+```bash
+npm run test:agents:integration:fresh
+```
+
+The automated tests return non-zero exit code when a response is not parseable/structured as expected.
+
 ## Tech Stack
 
 - **Runtime:** Node.js (ES modules)

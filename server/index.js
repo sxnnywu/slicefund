@@ -9,6 +9,8 @@ import express from "express";
 import cors from "cors";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
+import { mapThesisToMarkets } from "../ai/thesisMapper.js";
+import { scoreArbOpportunity } from "../ai/arbScorer.js";
 
 const app = express();
 app.use(cors());
@@ -136,6 +138,55 @@ async function rankMarkets(thesis, markets) {
   return [];
 }
 
+function fallbackKeywordsFromThesis(thesis) {
+  const stopWords = new Set([
+    "will",
+    "with",
+    "that",
+    "this",
+    "from",
+    "have",
+    "about",
+    "into",
+    "market",
+    "markets",
+    "thesis",
+  ]);
+
+  const cleaned = thesis
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((word) => word.length > 2 && !stopWords.has(word));
+
+  const unique = Array.from(new Set(cleaned)).slice(0, 5);
+  return unique.length > 0 ? unique : [thesis.slice(0, 50)];
+}
+
+function fallbackRankMarkets(markets, thesis) {
+  return markets.slice(0, 5).map((market, index) => {
+    const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
+    const firstPrice = prices.length > 0 ? Number(prices[0]) : null;
+
+    return {
+      id: market.id,
+      question: market.question,
+      relevance_score: Math.max(10 - index, 1),
+      suggested_position: "YES",
+      current_price: Number.isFinite(firstPrice) ? firstPrice : null,
+      one_liner: `Fallback ranking for thesis: ${thesis}`,
+      slug: market.slug || null,
+      image: market.image || null,
+      volume: market.volume || null,
+      liquidity: market.liquidity || null,
+      endDate: market.endDate || null,
+      polymarketUrl: market.slug
+        ? `https://polymarket.com/event/${market.slug}`
+        : null,
+    };
+  });
+}
+
 // --- Main endpoint ---
 app.post("/api/analyze", async (req, res) => {
   try {
@@ -148,8 +199,23 @@ app.post("/api/analyze", async (req, res) => {
 
     // Step 1: Parse thesis into keywords
     console.log("  → Agent 1: Parsing thesis...");
-    const keywords = await parseThesis(thesis);
-    console.log("    Keywords:", keywords);
+    let keywords = [];
+    let keywordStrategy = "gemini";
+
+    try {
+      keywords = await parseThesis(thesis);
+    } catch (keywordError) {
+      keywordStrategy = "fallback";
+      keywords = fallbackKeywordsFromThesis(thesis);
+      console.error("    Keyword parsing failed, using fallback:", keywordError.message);
+    }
+
+    if (!Array.isArray(keywords) || keywords.length === 0) {
+      keywordStrategy = "fallback";
+      keywords = fallbackKeywordsFromThesis(thesis);
+    }
+
+    console.log(`    Keywords (${keywordStrategy}):`, keywords);
 
     // Step 2: Search Polymarket
     console.log("  → Agent 2: Searching Polymarket...");
@@ -158,14 +224,48 @@ app.post("/api/analyze", async (req, res) => {
 
     // Step 3: Rank and explain
     console.log("  → Agent 3: Ranking markets...");
-    const picks = await rankMarkets(thesis, markets);
-    console.log(`    Returned ${picks.length} picks`);
+    let picks = [];
+    let rankingStrategy = "gemini";
+
+    try {
+      picks = await rankMarkets(thesis, markets);
+      if (!Array.isArray(picks) || picks.length === 0) {
+        rankingStrategy = "fallback";
+        picks = fallbackRankMarkets(markets, thesis);
+      }
+    } catch (rankingError) {
+      rankingStrategy = "fallback";
+      picks = fallbackRankMarkets(markets, thesis);
+      console.error("    Ranking failed, using fallback:", rankingError.message);
+    }
+
+    console.log(`    Returned ${picks.length} picks (${rankingStrategy})`);
+
+    // Gemini structured mapping (multi-platform)
+    console.log("  → Gemini thesis mapper...");
+    let thesisMapping = null;
+    let thesisMappingError = null;
+
+    try {
+      thesisMapping = await mapThesisToMarkets(thesis);
+      const mappedCount = Array.isArray(thesisMapping?.markets)
+        ? thesisMapping.markets.length
+        : 0;
+      console.log(`    Mapped ${mappedCount} cross-platform markets`);
+    } catch (mappingError) {
+      thesisMappingError = mappingError.message;
+      console.error("    Thesis mapping failed:", thesisMappingError);
+    }
 
     res.json({
       thesis,
       keywords,
+      keywordStrategy,
       totalMarketsFound: markets.length,
       picks,
+      rankingStrategy,
+      thesisMapping,
+      thesisMappingError,
     });
   } catch (err) {
     console.error("Analysis error:", err);
@@ -227,6 +327,64 @@ app.get("/api/polymarket/search", async (req, res) => {
     res.json({ markets, count: markets.length, query: q });
   } catch (err) {
     res.status(500).json({ error: "Search failed", details: err.message });
+  }
+});
+
+// Structured thesis mapping endpoint (Gemini function-calling)
+app.post("/api/thesis/map", async (req, res) => {
+  try {
+    const { thesis } = req.body;
+    if (!thesis || typeof thesis !== "string" || thesis.trim().length === 0) {
+      return res.status(400).json({ error: "Thesis is required" });
+    }
+
+    const mapping = await mapThesisToMarkets(thesis);
+    res.json(mapping);
+  } catch (err) {
+    console.error("Thesis map error:", err.message);
+    res.status(500).json({ error: "Thesis mapping failed", details: err.message });
+  }
+});
+
+// Structured arbitrage scoring endpoint (Gemini function-calling)
+app.post("/api/arb/score", async (req, res) => {
+  try {
+    const { question, platformA, priceA, platformB, priceB } = req.body;
+
+    if (!question || typeof question !== "string") {
+      return res.status(400).json({ error: "question is required" });
+    }
+
+    if (!platformA || typeof platformA !== "string" || !platformB || typeof platformB !== "string") {
+      return res.status(400).json({ error: "platformA and platformB are required" });
+    }
+
+    const leftPrice = Number(priceA);
+    const rightPrice = Number(priceB);
+
+    if (!Number.isFinite(leftPrice) || !Number.isFinite(rightPrice)) {
+      return res.status(400).json({ error: "priceA and priceB must be valid numbers" });
+    }
+
+    const score = await scoreArbOpportunity(
+      question,
+      platformA,
+      leftPrice,
+      platformB,
+      rightPrice
+    );
+
+    res.json({
+      question,
+      platformA,
+      priceA: leftPrice,
+      platformB,
+      priceB: rightPrice,
+      score,
+    });
+  } catch (err) {
+    console.error("Arb score error:", err.message);
+    res.status(500).json({ error: "Arbitrage scoring failed", details: err.message });
   }
 });
 

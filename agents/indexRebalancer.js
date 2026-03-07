@@ -185,7 +185,9 @@ export async function main() {
   console.dir(response, { depth: null });
 }
 
-main().catch((error) => {
-  console.error(`[main] Script failed: ${error.message}`);
-  process.exit(1);
-});
+if (process.argv[1] && path.resolve(process.argv[1]) === __filename) {
+  main().catch((error) => {
+    console.error(`[main] Script failed: ${error.message}`);
+    process.exit(1);
+  });
+}
