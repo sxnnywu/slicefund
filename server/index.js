@@ -20,6 +20,56 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
+const BACKBOARD_BASE_URL = "https://app.backboard.io/api";
+const backboardApiKey = process.env.BACKBOARD_API_KEY;
+const backboardHttp = backboardApiKey
+  ? axios.create({
+    baseURL: BACKBOARD_BASE_URL,
+    headers: {
+      "Content-Type": "application/json",
+      "X-API-Key": backboardApiKey,
+    },
+  })
+  : null;
+
+const AGENT_REGISTRY = {
+  thesis: {
+    name: "ThesisResearcher",
+    assistantEnv: "THESIS_RESEARCHER_ASSISTANT_ID",
+    threadEnv: "THESIS_RESEARCHER_THREAD_ID",
+  },
+  arb: {
+    name: "ArbitrageScanner",
+    assistantEnv: "ARB_SCANNER_ASSISTANT_ID",
+    threadEnv: "ARB_SCANNER_THREAD_ID",
+  },
+  rebalancer: {
+    name: "IndexRebalancer",
+    assistantEnv: "INDEX_REBALANCER_ASSISTANT_ID",
+    threadEnv: "INDEX_REBALANCER_THREAD_ID",
+  },
+  dispatcher: {
+    name: "AlertDispatcher",
+    assistantEnv: "ALERT_DISPATCHER_ASSISTANT_ID",
+    threadEnv: "ALERT_DISPATCHER_THREAD_ID",
+  },
+};
+
+const AGENT_ALIASES = {
+  thesis: "thesis",
+  thesisresearcher: "thesis",
+  arb: "arb",
+  scanner: "arb",
+  arbitragescanner: "arb",
+  rebalancer: "rebalancer",
+  index: "rebalancer",
+  indexrebalancer: "rebalancer",
+  basket: "rebalancer",
+  dispatcher: "dispatcher",
+  alert: "dispatcher",
+  alertdispatcher: "dispatcher",
+};
+
 // Debug: log all incoming requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, JSON.stringify(req.body));
@@ -48,9 +98,10 @@ async function geminiCall(prompt, retries = 3) {
 }
 
 // --- Agent 1: Parse thesis into search keywords ---
-async function parseThesis(thesis) {
+async function parseThesis(thesis, thesisHistory = []) {
+  const historyContext = formatThesisHistoryContext(thesisHistory);
   const text = await geminiCall(
-    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets on Polymarket. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"`
+    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets on Polymarket. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"${historyContext}`
   );
   const match = text.match(/\[[\s\S]*\]/);
   if (match) {
@@ -95,10 +146,12 @@ async function searchPolymarket(keywords) {
 }
 
 // --- Agent 3: Rank and explain picks ---
-async function rankMarkets(thesis, markets) {
+async function rankMarkets(thesis, markets, thesisHistory = []) {
   if (markets.length === 0) {
     return [];
   }
+
+  const historyContext = formatThesisHistoryContext(thesisHistory);
 
   const marketSummaries = markets.slice(0, 20).map((m) => ({
     id: m.id,
@@ -114,7 +167,7 @@ async function rankMarkets(thesis, markets) {
   }));
 
   const text = await geminiCall(
-    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"\n\nHere are prediction markets from Polymarket:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug". Return ONLY a JSON array.`
+    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug". Return ONLY a JSON array.`
   );
 
   const match = text.match(/\[[\s\S]*\]/);
@@ -189,6 +242,28 @@ function fallbackRankMarkets(markets, thesis) {
         : null,
     };
   });
+}
+
+function sanitizeThesisHistory(history) {
+  if (!Array.isArray(history)) {
+    return [];
+  }
+
+  return history
+    .filter((entry) => typeof entry === "string")
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0)
+    .slice(0, 10);
+}
+
+function formatThesisHistoryContext(history) {
+  if (!Array.isArray(history) || history.length === 0) {
+    return "";
+  }
+
+  return `\n\nUser prior thesis history (context only, prioritize current thesis and avoid duplicate recommendations):\n${history
+    .map((entry, index) => `${index + 1}. ${entry}`)
+    .join("\n")}`;
 }
 
 function stripCodeFences(text) {
@@ -297,15 +372,99 @@ function normalizeActions(actions, platformA, platformB, leftPrice, rightPrice) 
   return normalized.length === 2 ? normalized : fallback;
 }
 
+function resolveAgentConfig(agentInput) {
+  if (typeof agentInput !== "string" || agentInput.trim().length === 0) {
+    return null;
+  }
+
+  const canonicalKey = AGENT_ALIASES[agentInput.trim().toLowerCase()];
+  if (!canonicalKey) {
+    return null;
+  }
+
+  const config = AGENT_REGISTRY[canonicalKey];
+  return {
+    key: canonicalKey,
+    ...config,
+  };
+}
+
+function parseBoundedInt(value, fallback, min, max) {
+  const parsed = Number.parseInt(String(value), 10);
+  if (!Number.isFinite(parsed)) {
+    return fallback;
+  }
+
+  return Math.min(Math.max(parsed, min), max);
+}
+
+function normalizeHistoryMessage(message) {
+  return {
+    id: message?.message_id || null,
+    role: message?.role || null,
+    status: message?.status || null,
+    createdAt: message?.created_at || null,
+    content: typeof message?.content === "string" ? message.content : "",
+    modelProvider: message?.model_provider || null,
+    modelName: message?.model_name || null,
+    metadata: message?.metadata_ || null,
+    attachments: Array.isArray(message?.attachments) ? message.attachments : [],
+  };
+}
+
+function filterHistoryMessages(messages, options) {
+  const {
+    role,
+    status,
+    contains,
+    limit,
+  } = options;
+
+  const roleFilter = typeof role === "string" ? role.toLowerCase() : "all";
+  const statusFilter = typeof status === "string" ? status.toUpperCase() : "ALL";
+  const containsFilter = typeof contains === "string" ? contains.trim().toLowerCase() : "";
+
+  const normalized = Array.isArray(messages)
+    ? messages.map(normalizeHistoryMessage)
+    : [];
+
+  const filtered = normalized.filter((message) => {
+    if (roleFilter !== "all" && String(message.role || "").toLowerCase() !== roleFilter) {
+      return false;
+    }
+
+    if (statusFilter !== "ALL" && String(message.status || "").toUpperCase() !== statusFilter) {
+      return false;
+    }
+
+    if (containsFilter && !String(message.content || "").toLowerCase().includes(containsFilter)) {
+      return false;
+    }
+
+    return true;
+  });
+
+  if (!Number.isFinite(limit) || limit <= 0) {
+    return filtered;
+  }
+
+  return filtered.slice(-limit);
+}
+
 // --- Main endpoint ---
 app.post("/api/analyze", async (req, res) => {
   try {
-    const { thesis } = req.body;
+    const { thesis, history } = req.body;
     if (!thesis || thesis.trim().length === 0) {
       return res.status(400).json({ error: "Thesis is required" });
     }
 
+    const thesisHistory = sanitizeThesisHistory(history);
+
     console.log(`\n🔍 Analyzing thesis: "${thesis}"`);
+    if (thesisHistory.length > 0) {
+      console.log(`  → Using thesis history context (${thesisHistory.length} prior entries)`);
+    }
 
     // Step 1: Parse thesis into keywords
     console.log("  → Agent 1: Parsing thesis...");
@@ -313,7 +472,7 @@ app.post("/api/analyze", async (req, res) => {
     let keywordStrategy = "gemini";
 
     try {
-      keywords = await parseThesis(thesis);
+      keywords = await parseThesis(thesis, thesisHistory);
     } catch (keywordError) {
       keywordStrategy = "fallback";
       keywords = fallbackKeywordsFromThesis(thesis);
@@ -338,7 +497,7 @@ app.post("/api/analyze", async (req, res) => {
     let rankingStrategy = "gemini";
 
     try {
-      picks = await rankMarkets(thesis, markets);
+      picks = await rankMarkets(thesis, markets, thesisHistory);
       if (!Array.isArray(picks) || picks.length === 0) {
         rankingStrategy = "fallback";
         picks = fallbackRankMarkets(markets, thesis);
@@ -357,7 +516,10 @@ app.post("/api/analyze", async (req, res) => {
     let thesisMappingError = null;
 
     try {
-      thesisMapping = await mapThesisToMarkets(thesis);
+      const mapperInput = thesisHistory.length > 0
+        ? `${thesis}${formatThesisHistoryContext(thesisHistory)}`
+        : thesis;
+      thesisMapping = await mapThesisToMarkets(mapperInput);
       const mappedCount = Array.isArray(thesisMapping?.markets)
         ? thesisMapping.markets.length
         : 0;
@@ -373,7 +535,10 @@ app.post("/api/analyze", async (req, res) => {
     let agentAnalysisError = null;
 
     try {
-      agentAnalysis = await analyzeThesis(thesis);
+      const agentInput = thesisHistory.length > 0
+        ? `${thesis}${formatThesisHistoryContext(thesisHistory)}`
+        : thesis;
+      agentAnalysis = await analyzeThesis(agentInput);
       console.log(`    Agent response received (${agentAnalysis?.content?.length || 0} chars)`);
     } catch (agentError) {
       agentAnalysisError = agentError.message;
@@ -387,6 +552,7 @@ app.post("/api/analyze", async (req, res) => {
       totalMarketsFound: markets.length,
       picks,
       rankingStrategy,
+      historyContextUsed: thesisHistory,
       thesisMapping,
       thesisMappingError,
       agentAnalysis,
@@ -690,6 +856,132 @@ app.post("/api/basket/rebalance", async (req, res) => {
   } catch (err) {
     console.error("Basket rebalance error:", err.message);
     res.status(500).json({ error: "Basket rebalance failed", details: err.message });
+  }
+});
+
+// Backboard history endpoint: retrieve persisted thread history for an agent
+app.get("/api/agents/history", async (req, res) => {
+  try {
+    if (!backboardHttp) {
+      return res.status(500).json({
+        error: "BACKBOARD_API_KEY is missing",
+        details: "Set BACKBOARD_API_KEY in .env to retrieve agent history.",
+      });
+    }
+
+    const agentInput = typeof req.query.agent === "string" ? req.query.agent : "";
+    const agent = resolveAgentConfig(agentInput);
+
+    if (!agent) {
+      return res.status(400).json({
+        error: "Invalid agent query parameter",
+        details: "Use one of: thesis, arb, rebalancer, dispatcher",
+      });
+    }
+
+    const scopeRaw = typeof req.query.scope === "string" ? req.query.scope.toLowerCase() : "thread";
+    const scope = scopeRaw === "assistant" ? "assistant" : "thread";
+
+    const role = typeof req.query.role === "string" ? req.query.role.toLowerCase() : "all";
+    const status = typeof req.query.status === "string" ? req.query.status.toUpperCase() : "ALL";
+    const contains = typeof req.query.contains === "string" ? req.query.contains : "";
+    const limit = parseBoundedInt(req.query.limit, 50, 1, 500);
+    const threadLimit = parseBoundedInt(req.query.threadLimit, 10, 1, 100);
+
+    const assistantId = process.env[agent.assistantEnv] || null;
+    const requestedThreadId = typeof req.query.threadId === "string" && req.query.threadId.trim().length > 0
+      ? req.query.threadId.trim()
+      : null;
+    const savedThreadId = process.env[agent.threadEnv] || null;
+    const threadId = requestedThreadId || savedThreadId;
+
+    if (scope === "thread") {
+      if (!threadId) {
+        return res.status(404).json({
+          error: "No thread ID found for agent",
+          details: `Missing ${agent.threadEnv} and no threadId query was provided.`,
+        });
+      }
+
+      const response = await backboardHttp.get(`/threads/${threadId}`);
+      const thread = response.data || {};
+      const messages = filterHistoryMessages(thread.messages, {
+        role,
+        status,
+        contains,
+        limit,
+      });
+
+      return res.json({
+        agent: agent.key,
+        agentName: agent.name,
+        scope,
+        assistantId,
+        threadId,
+        totalMessages: messages.length,
+        filters: {
+          role,
+          status,
+          contains,
+          limit,
+        },
+        messages,
+      });
+    }
+
+    if (!assistantId) {
+      return res.status(404).json({
+        error: "No assistant ID found for agent",
+        details: `Missing ${agent.assistantEnv}.`,
+      });
+    }
+
+    const response = await backboardHttp.get(`/assistants/${assistantId}/threads`);
+    const rawThreads = Array.isArray(response.data) ? response.data : [];
+    const scopedThreads = rawThreads.slice(0, threadLimit).map((thread) => {
+      const messages = filterHistoryMessages(thread?.messages, {
+        role,
+        status,
+        contains,
+        limit,
+      });
+
+      return {
+        threadId: thread?.thread_id || null,
+        createdAt: thread?.created_at || null,
+        totalMessages: messages.length,
+        messages,
+      };
+    });
+
+    const threads = contains || role !== "all" || status !== "ALL"
+      ? scopedThreads.filter((thread) => thread.totalMessages > 0)
+      : scopedThreads;
+
+    res.json({
+      agent: agent.key,
+      agentName: agent.name,
+      scope,
+      assistantId,
+      totalThreads: rawThreads.length,
+      returnedThreads: threads.length,
+      filters: {
+        role,
+        status,
+        contains,
+        limit,
+        threadLimit,
+      },
+      threads,
+    });
+  } catch (err) {
+    const status = err.response?.status || 500;
+    const details = err.response?.data || err.message;
+    console.error("Agent history error:", status, details);
+    res.status(status).json({
+      error: "Failed to retrieve agent history",
+      details,
+    });
   }
 });
 
