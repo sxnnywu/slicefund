@@ -1,9 +1,10 @@
 {
-  "name": "slidefund-client",
+  "name": "slicefund-client",
   "private": true,
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
+    "@auth0/auth0-react": "^2.15.0",
     "@solana/web3.js": "^1.95.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"

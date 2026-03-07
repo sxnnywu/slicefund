@@ -1,141 +1,95 @@
-import React, { useState } from "react";
-import ThesisInput from "./components/ThesisInput.jsx";
-import ResultsPanel from "./components/ResultsPanel.jsx";
-import AgentStatus from "./components/AgentStatus.jsx";
-import WalletConnect from "./components/WalletConnect.jsx";
+import React from "react";
+import { useAuth0 } from "@auth0/auth0-react";
+import SignIn from "./pages/SignIn.jsx";
+import Dashboard from "./pages/Dashboard.jsx";
+import MeshBackground from "./components/MeshBackground.jsx";
 
 export default function App() {
-  const [results, setResults] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState(null);
-  const [agentStep, setAgentStep] = useState(0);
+  const { isLoading, isAuthenticated, loginWithRedirect, logout, user } = useAuth0();
 
-  const analyze = async (thesis) => {
-    setLoading(true);
-    setError(null);
-    setResults(null);
-    setAgentStep(1);
+  if (isLoading) {
+    return (
+      <>
+        <MeshBackground />
+        <div style={styles.loadingWrap}>
+          <div style={styles.loadingCard}>Loading authentication...</div>
+        </div>
+      </>
+    );
+  }
 
-    // Simulate agent steps with slight delays for UX
-    const stepTimer1 = setTimeout(() => setAgentStep(2), 1500);
-    const stepTimer2 = setTimeout(() => setAgentStep(3), 3500);
-
-    try {
-      const res = await fetch("/api/analyze", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ thesis }),
-      });
-      if (!res.ok) {
-        let msg = "Request failed";
-        try {
-          const data = await res.json();
-          msg = data.details || data.error || msg;
-        } catch (_) {}
-        throw new Error(msg);
-      }
-      const data = await res.json();
-      setResults(data);
-      setAgentStep(4);
-    } catch (err) {
-      setError(err.message);
-      setAgentStep(0);
-    } finally {
-      clearTimeout(stepTimer1);
-      clearTimeout(stepTimer2);
-      setLoading(false);
-    }
-  };
+  if (!isAuthenticated) {
+    return (
+      <>
+        <MeshBackground />
+        <SignIn onSignIn={() => loginWithRedirect()} />
+      </>
+    );
+  }
 
   return (
-    <div style={styles.container}>
-      <header style={styles.header}>
-        <div style={styles.headerTop}>
-          <div style={styles.logo}>
-            <span style={styles.logoIcon}>◧</span> Backboard
-          </div>
-          <WalletConnect />
-        </div>
-        <p style={styles.tagline}>
-          Type your market thesis. Get ranked Polymarket picks instantly.
-        </p>
-      </header>
-
-      <main style={styles.main}>
-        <ThesisInput onSubmit={analyze} loading={loading} />
-
-        {loading && <AgentStatus step={agentStep} />}
-
-        {error && (
-          <div style={styles.error}>
-            <span>⚠️</span> {error}
-          </div>
-        )}
-
-        {results && <ResultsPanel data={results} />}
-      </main>
-
-      <footer style={styles.footer}>
-        Prediction markets involve risk. This is not financial advice.
-      </footer>
-    </div>
+    <>
+      <MeshBackground />
+      <div style={styles.topRightControls}>
+        <span style={styles.userPill}>{user?.email || user?.name || "Signed in"}</span>
+        <button
+          onClick={() => logout({ logoutParams: { returnTo: window.location.origin } })}
+          style={styles.logoutButton}
+        >
+          Logout
+        </button>
+      </div>
+      <Dashboard />
+    </>
   );
 }
 
 const styles = {
-  container: {
-    maxWidth: 860,
-    margin: "0 auto",
-    padding: "40px 20px",
-    minHeight: "100vh",
+  loadingWrap: {
+    position: "fixed",
+    inset: 0,
     display: "flex",
-    flexDirection: "column",
+    alignItems: "center",
+    justifyContent: "center",
+    zIndex: 2,
   },
-  header: {
-    marginBottom: 48,
-  },
-  headerTop: {
-    display: "flex",
-    justifyContent: "space-between",
-    alignItems: "flex-start",
-    gap: 24,
-    marginBottom: 16,
-  },
-  logo: {
-    fontSize: 32,
-    fontWeight: 800,
-    letterSpacing: "-0.02em",
-    marginBottom: 8,
-  },
-  logoIcon: {
-    color: "var(--accent)",
-    marginRight: 8,
-  },
-  tagline: {
-    color: "var(--text-dim)",
-    fontSize: 16,
-    maxWidth: 500,
-    margin: "0 auto",
-    textAlign: "center",
-  },
-  main: {
-    flex: 1,
-  },
-  error: {
-    background: "rgba(255,107,107,0.1)",
-    border: "1px solid rgba(255,107,107,0.3)",
-    borderRadius: 12,
-    padding: "16px 20px",
-    marginTop: 24,
-    color: "var(--red)",
+  loadingCard: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 14,
+    padding: "14px 18px",
     fontSize: 14,
+    color: "var(--text-mid)",
+    boxShadow: "var(--shadow)",
   },
-  footer: {
-    textAlign: "center",
-    color: "var(--text-dim)",
+  topRightControls: {
+    position: "fixed",
+    top: 16,
+    right: 16,
+    display: "flex",
+    alignItems: "center",
+    gap: 10,
+    zIndex: 30,
+  },
+  userPill: {
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
     fontSize: 12,
-    marginTop: 60,
-    paddingTop: 20,
-    borderTop: "1px solid var(--border)",
+    color: "var(--text-mid)",
+    maxWidth: 260,
+    overflow: "hidden",
+    whiteSpace: "nowrap",
+    textOverflow: "ellipsis",
+  },
+  logoutButton: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    color: "var(--text)",
+    fontSize: 13,
+    padding: "6px 12px",
+    cursor: "pointer",
   },
 };
