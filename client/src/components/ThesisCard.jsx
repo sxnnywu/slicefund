@@ -2,8 +2,10 @@ import React, { useState } from "react";
 
 const CHIPS = ["Trump markets", "AI regulation", "Fed cuts", "BTC $150k"];
 
-export default function ThesisCard({ onAnalyze, loading }) {
+export default function ThesisCard({ onAnalyze, loading, progress }) {
   const [text, setText] = useState("");
+  const steps = Array.isArray(progress?.steps) ? progress.steps : [];
+  const currentStep = Number.isInteger(progress?.currentStep) ? progress.currentStep : -1;
 
   const handleSubmit = () => {
     if (text.trim() && !loading) onAnalyze(text.trim());
@@ -35,6 +37,45 @@ export default function ThesisCard({ onAnalyze, loading }) {
           {loading ? "⟳ Analyzing..." : "⌕ Analyze"}
         </button>
       </div>
+
+      {loading && steps.length > 0 && (
+        <div style={styles.progressWrap} aria-live="polite">
+          <div style={styles.progressTitle}>Analysis Progress</div>
+          {steps.map((step, index) => {
+            const isDone = index < currentStep;
+            const isActive = index === currentStep;
+
+            return (
+              <div key={step} style={styles.progressRow}>
+                <span
+                  style={{
+                    ...styles.progressDot,
+                    ...(isDone
+                      ? styles.progressDotDone
+                      : isActive
+                        ? styles.progressDotActive
+                        : styles.progressDotIdle),
+                  }}
+                >
+                  {isDone ? "✓" : isActive ? "⟳" : index + 1}
+                </span>
+                <span
+                  style={{
+                    ...styles.progressText,
+                    ...(isDone
+                      ? styles.progressTextDone
+                      : isActive
+                        ? styles.progressTextActive
+                        : {}),
+                  }}
+                >
+                  {step}
+                </span>
+              </div>
+            );
+          })}
+        </div>
+      )}
     </div>
   );
 }
@@ -73,5 +114,66 @@ const styles = {
     color: "#fff", border: "none", borderRadius: 10, fontFamily: "'Outfit', sans-serif",
     fontSize: 13, fontWeight: 700, cursor: "pointer", boxShadow: "0 4px 16px rgba(26,92,255,0.25)",
     whiteSpace: "nowrap",
+  },
+  progressWrap: {
+    marginTop: 14,
+    background: "var(--bg)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: "12px 14px",
+  },
+  progressTitle: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono', monospace",
+    marginBottom: 8,
+  },
+  progressRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "4px 0",
+  },
+  progressDot: {
+    width: 18,
+    height: 18,
+    borderRadius: 99,
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontSize: 10,
+    fontWeight: 700,
+    fontFamily: "'DM Mono', monospace",
+    flexShrink: 0,
+  },
+  progressDotDone: {
+    background: "var(--green-light)",
+    color: "var(--green)",
+    border: "1px solid rgba(0,196,140,0.25)",
+  },
+  progressDotActive: {
+    background: "var(--blue-light)",
+    color: "var(--blue)",
+    border: "1px solid rgba(26,92,255,0.25)",
+  },
+  progressDotIdle: {
+    background: "var(--surface)",
+    color: "var(--text-dim)",
+    border: "1px solid var(--border)",
+  },
+  progressText: {
+    fontSize: 12,
+    color: "var(--text-dim)",
+    lineHeight: 1.35,
+  },
+  progressTextDone: {
+    color: "var(--text-mid)",
+  },
+  progressTextActive: {
+    color: "var(--text)",
+    fontWeight: 600,
   },
 };

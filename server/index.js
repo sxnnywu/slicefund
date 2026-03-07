@@ -13,6 +13,7 @@ import { GoogleGenerativeAI } from "@google/generative-ai";
 import axios from "axios";
 import { mapThesisToMarkets } from "../ai/thesisMapper.js";
 import { scoreArbOpportunity } from "../ai/arbScorer.js";
+import { findMarketRelationships } from "../ai/marketRelationships.js";
 import { analyzeThesis } from "../agents/thesisResearcher.js";
 import { checkBasketRebalance } from "../agents/indexRebalancer.js";
 import { validateArbitrage } from "../agents/arbitrageScanner.js";
@@ -21,6 +22,31 @@ import { dispatchArbitrageAlert } from "../agents/alertDispatcher.js";
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+// In-memory cache for market relationships (TTL: 1 hour)
+const relationshipCache = new Map();
+const CACHE_TTL = 60 * 60 * 1000; // 1 hour in ms
+
+function getCachedRelationships(marketId) {
+  const cached = relationshipCache.get(marketId);
+  if (cached && Date.now() - cached.timestamp < CACHE_TTL) {
+    return cached.data;
+  }
+  return null;
+}
+
+function setCachedRelationships(marketId, data) {
+  relationshipCache.set(marketId, { data, timestamp: Date.now() });
+  // Clean old entries periodically
+  if (relationshipCache.size > 1000) {
+    const cutoff = Date.now() - CACHE_TTL;
+    for (const [key, value] of relationshipCache.entries()) {
+      if (value.timestamp < cutoff) {
+        relationshipCache.delete(key);
+      }
+    }
+  }
+}
 
 const BACKBOARD_BASE_URL = "https://app.backboard.io/api";
 const backboardApiKey = process.env.BACKBOARD_API_KEY;
@@ -110,8 +136,12 @@ app.use((req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
-const GEMINI_MODEL_NAME = "gemini-2.5-flash";
-const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash-lite";
+const GEMINI_MODEL_CANDIDATES = [
+  "gemini-2.0-flash-lite",
+  "gemini-2.5-flash",
+  "gemini-2.5-flash-lite",
+  "gemini-flash-latest",
+];
 
 function isGeminiPermanentFailure(message) {
   const normalized = String(message || "").toLowerCase();
@@ -248,10 +278,12 @@ async function fetchKalshiMarkets(params = {}) {
 }
 
 // --- Helper: call Gemini with retry ---
-async function geminiCall(prompt, retries = 3) {
+async function geminiCall(prompt, retries = GEMINI_MODEL_CANDIDATES.length) {
   for (let i = 0; i < retries; i++) {
     try {
-      const modelName = i === 0 ? GEMINI_MODEL_NAME : GEMINI_FALLBACK_MODEL;
+      const modelName = GEMINI_MODEL_CANDIDATES[
+        Math.min(i, GEMINI_MODEL_CANDIDATES.length - 1)
+      ];
       const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
       return result.response.text().trim();
@@ -410,6 +442,70 @@ async function searchManifold(keywords) {
   });
 }
 
+function normalizeProbability(value) {
+  const numeric = toFiniteNumber(value, null);
+  if (!Number.isFinite(numeric)) return null;
+
+  if (numeric > 1 && numeric <= 100) {
+    return numeric / 100;
+  }
+
+  if (numeric < 0 || numeric > 1) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function parseOutcomePrices(outcomePrices) {
+  if (Array.isArray(outcomePrices)) {
+    return outcomePrices;
+  }
+
+  if (typeof outcomePrices === "string") {
+    try {
+      const parsed = JSON.parse(outcomePrices);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  }
+
+  return [];
+}
+
+function extractYesNoOdds(market) {
+  let yesOdds = normalizeProbability(market?.yes_price);
+  let noOdds = normalizeProbability(market?.no_price);
+
+  const parsedOutcomePrices = parseOutcomePrices(market?.outcomePrices);
+  const parsedYes = normalizeProbability(parsedOutcomePrices[0]);
+  const parsedNo = normalizeProbability(parsedOutcomePrices[1]);
+
+  if (yesOdds === null && parsedYes !== null) {
+    yesOdds = parsedYes;
+  }
+
+  if (noOdds === null && parsedNo !== null) {
+    noOdds = parsedNo;
+  }
+
+  if (yesOdds === null && noOdds !== null) {
+    yesOdds = Math.max(0, Math.min(1, 1 - noOdds));
+  }
+
+  if (noOdds === null && yesOdds !== null) {
+    noOdds = Math.max(0, Math.min(1, 1 - yesOdds));
+  }
+
+  return { yesOdds, noOdds };
+}
+
+function normalizeSuggestedPosition(value) {
+  const normalized = String(value || "").toUpperCase();
+  return normalized === "NO" ? "NO" : "YES";
+}
+
 // --- Agent 3: Rank and explain picks ---
 async function rankMarkets(thesis, markets, thesisHistory = []) {
   if (markets.length === 0) {
@@ -444,6 +540,11 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
       return ranked.map((r) => {
         const original = markets.find((m) => m.id === r.id);
         const platform = r.platform || original?.platform || 'Polymarket';
+        const suggestedPosition = normalizeSuggestedPosition(r.suggested_position);
+        const { yesOdds, noOdds } = extractYesNoOdds(original || {});
+        const llmCurrentPrice = normalizeProbability(r.current_price);
+        const resolvedCurrentPrice =
+          llmCurrentPrice ?? (suggestedPosition === "YES" ? yesOdds : noOdds);
         let marketUrl = null;
         if (platform === 'Polymarket' && r.slug) {
           marketUrl = `https://polymarket.com/event/${r.slug}`;
@@ -455,6 +556,10 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
         return {
           ...r,
           platform,
+          suggested_position: suggestedPosition,
+          current_price: resolvedCurrentPrice,
+          yes_odds: yesOdds,
+          no_odds: noOdds,
           image: original?.image || null,
           volume: original?.volume || null,
           liquidity: original?.liquidity || null,
@@ -496,8 +601,7 @@ function fallbackKeywordsFromThesis(thesis) {
 
 function fallbackRankMarkets(markets, thesis) {
   return markets.slice(0, 5).map((market, index) => {
-    const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
-    const firstPrice = prices.length > 0 ? Number(prices[0]) : null;
+    const { yesOdds, noOdds } = extractYesNoOdds(market);
     const platform = market.platform || 'Polymarket';
     let marketUrl = null;
     if (platform === 'Polymarket' && market.slug) {
@@ -513,7 +617,9 @@ function fallbackRankMarkets(markets, thesis) {
       question: market.question,
       relevance_score: Math.max(10 - index, 1),
       suggested_position: "YES",
-      current_price: Number.isFinite(firstPrice) ? firstPrice : null,
+      current_price: yesOdds,
+      yes_odds: yesOdds,
+      no_odds: noOdds,
       one_liner: `Fallback ranking for thesis: ${thesis}`,
       slug: market.slug || null,
       platform,
@@ -1154,6 +1260,110 @@ app.post("/api/arb/score", async (req, res) => {
   } catch (err) {
     console.error("Arb score error:", err.message);
     res.status(500).json({ error: "Arbitrage scoring failed", details: err.message });
+  }
+});
+
+// Find related markets for a given market
+app.get("/api/markets/:platform/:id/related", async (req, res) => {
+  try {
+    const { platform, id } = req.params;
+    const { maxResults = 5, minConfidence = 0.6 } = req.query;
+
+    // Check cache first
+    const cacheKey = `${platform}:${id}`;
+    const cached = getCachedRelationships(cacheKey);
+    if (cached) {
+      return res.json({ relationships: cached, cached: true });
+    }
+
+    // Fetch target market based on platform
+    let targetMarket = null;
+    let candidateMarkets = [];
+
+    // Fetch from all platforms to find candidates
+    const [polymarkets, kalshiMarkets, manifoldMarkets] = await Promise.all([
+      axios.get("https://gamma-api.polymarket.com/markets", {
+        params: { limit: 50, closed: false },
+        timeout: 8000,
+      }).then(r => r.data || []).catch(() => []),
+
+      axios.get("https://trading-api.kalshi.com/trade-api/v2/events", {
+        params: { limit: 20, status: "open", with_nested_markets: true },
+        timeout: 8000,
+      }).then(r => {
+        const events = r.data?.events || [];
+        const markets = [];
+        for (const event of events) {
+          if (event.markets && Array.isArray(event.markets)) {
+            for (const market of event.markets) {
+              if (market.status === "open") {
+                markets.push({
+                  id: market.ticker,
+                  question: market.title || event.title,
+                  platform: 'Kalshi',
+                  slug: market.ticker,
+                });
+              }
+            }
+          }
+        }
+        return markets;
+      }).catch(() => []),
+
+      axios.get("https://api.manifold.markets/v0/markets", {
+        params: { limit: 50 },
+        timeout: 8000,
+      }).then(r => (r.data || []).filter(m => !m.isResolved && m.closeTime > Date.now()).map(m => ({
+        id: m.id,
+        question: m.question,
+        platform: 'Manifold',
+        slug: m.slug,
+        url: m.url,
+        description: m.description || m.textDescription,
+      }))).catch(() => []),
+    ]);
+
+    // Normalize Polymarket markets
+    const normalizedPolymarkets = polymarkets.map(m => ({
+      id: m.id,
+      question: m.question,
+      platform: 'Polymarket',
+      slug: m.slug,
+      description: m.description,
+    }));
+
+    candidateMarkets = [...normalizedPolymarkets, ...kalshiMarkets, ...manifoldMarkets];
+
+    // Find target market in the fetched data
+    if (platform.toLowerCase() === 'polymarket') {
+      targetMarket = normalizedPolymarkets.find(m => m.id === id);
+    } else if (platform.toLowerCase() === 'kalshi') {
+      targetMarket = kalshiMarkets.find(m => m.id === id);
+    } else if (platform.toLowerCase() === 'manifold') {
+      targetMarket = manifoldMarkets.find(m => m.id === id);
+    }
+
+    if (!targetMarket) {
+      return res.status(404).json({ error: "Market not found" });
+    }
+
+    // Remove target market from candidates
+    candidateMarkets = candidateMarkets.filter(m => m.id !== id);
+
+    // Find relationships
+    const relationships = await findMarketRelationships(
+      targetMarket,
+      candidateMarkets,
+      { maxResults: parseInt(maxResults) || 5, minConfidence: parseFloat(minConfidence) || 0.6 }
+    );
+
+    // Cache the result
+    setCachedRelationships(cacheKey, relationships);
+
+    res.json({ relationships, cached: false });
+  } catch (err) {
+    console.error("Find related markets error:", err.message);
+    res.status(500).json({ error: "Failed to find related markets", details: err.message });
   }
 });
 
