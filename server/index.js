@@ -202,6 +202,56 @@ async function searchKalshi(keywords) {
   });
 }
 
+// --- Agent 2c: Search Manifold for relevant markets ---
+async function searchManifold(keywords) {
+  const allMarkets = [];
+
+  for (const keyword of keywords) {
+    try {
+      const response = await axios.get(
+        "https://api.manifold.markets/v0/search-markets",
+        {
+          params: {
+            term: keyword,
+            limit: 10,
+            filter: "open",
+          },
+          timeout: 8000,
+        }
+      );
+      
+      const markets = response.data || [];
+      
+      for (const market of markets) {
+        if (market.isResolved === false && market.closeTime > Date.now()) {
+          allMarkets.push({
+            id: market.id,
+            question: market.question,
+            description: market.description || market.textDescription || "",
+            outcomePrices: JSON.stringify([market.probability || 0]),
+            volume: market.volume || market.volume24Hours || 0,
+            liquidity: market.liquidity || 0,
+            endDate: new Date(market.closeTime).toISOString(),
+            slug: market.slug,
+            platform: 'Manifold',
+            url: market.url,
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Manifold search failed for "${keyword}":`, err.message);
+    }
+  }
+
+  // Deduplicate by id
+  const seen = new Set();
+  return allMarkets.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+}
+
 // --- Agent 3: Rank and explain picks ---
 async function rankMarkets(thesis, markets, thesisHistory = []) {
   if (markets.length === 0) {
@@ -225,7 +275,7 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
   }));
 
   const text = await geminiCall(
-    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket and Kalshi:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug", "platform". Return ONLY a JSON array.`
+    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket, Kalshi, and Manifold:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug", "platform". Return ONLY a JSON array.`
   );
 
   const match = text.match(/\[[\s\S]*\]/);
@@ -241,6 +291,8 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
           marketUrl = `https://polymarket.com/event/${r.slug}`;
         } else if (platform === 'Kalshi' && r.slug) {
           marketUrl = `https://kalshi.com/markets/${r.slug}`;
+        } else if (platform === 'Manifold') {
+          marketUrl = original?.url || `https://manifold.markets/${r.slug}`;
         }
         return {
           ...r,
@@ -294,6 +346,8 @@ function fallbackRankMarkets(markets, thesis) {
       marketUrl = `https://polymarket.com/event/${market.slug}`;
     } else if (platform === 'Kalshi' && market.slug) {
       marketUrl = `https://kalshi.com/markets/${market.slug}`;
+    } else if (platform === 'Manifold') {
+      marketUrl = market.url || `https://manifold.markets/${market.slug}`;
     }
 
     return {
@@ -556,14 +610,15 @@ app.post("/api/analyze", async (req, res) => {
 
     console.log(`    Keywords (${keywordStrategy}):`, keywords);
 
-    // Step 2: Search both Polymarket and Kalshi
+    // Step 2: Search Polymarket, Kalshi, and Manifold
     console.log("  → Agent 2: Searching markets...");
-    const [polymarkets, kalshiMarkets] = await Promise.all([
+    const [polymarkets, kalshiMarkets, manifoldMarkets] = await Promise.all([
       searchPolymarket(keywords),
       searchKalshi(keywords),
+      searchManifold(keywords),
     ]);
-    const markets = [...polymarkets, ...kalshiMarkets];
-    console.log(`    Found ${markets.length} markets (${polymarkets.length} Polymarket, ${kalshiMarkets.length} Kalshi)`);
+    const markets = [...polymarkets, ...kalshiMarkets, ...manifoldMarkets];
+    console.log(`    Found ${markets.length} markets (${polymarkets.length} Polymarket, ${kalshiMarkets.length} Kalshi, ${manifoldMarkets.length} Manifold)`);
 
     // Step 3: Rank and explain
     console.log("  → Agent 3: Ranking markets...");
@@ -790,6 +845,71 @@ app.get("/api/kalshi/search", async (req, res) => {
     res.json({ markets: markets.slice(0, 15), count: markets.length, query: q });
   } catch (err) {
     console.error("Kalshi search error:", err.message);
+    res.status(500).json({ error: "Search failed", details: err.message });
+  }
+});
+
+app.get("/api/manifold/trending", async (req, res) => {
+  try {
+    const response = await axios.get("https://api.manifold.markets/v0/markets", {
+      params: {
+        limit: 20,
+        sort: "liquidity",
+        filter: "open",
+      },
+      timeout: 10000,
+    });
+    
+    const markets = (response.data || []).map((m) => ({
+      id: m.id,
+      question: m.question,
+      slug: m.slug,
+      url: m.url,
+      probability: m.probability || 0,
+      volume: m.volume || m.volume24Hours || 0,
+      liquidity: m.liquidity || 0,
+      closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+      creatorName: m.creatorName,
+      creatorUsername: m.creatorUsername,
+    }));
+    
+    res.json({ markets, count: markets.length });
+  } catch (err) {
+    console.error("Manifold fetch error:", err.message);
+    res.status(500).json({ error: "Failed to fetch from Manifold", details: err.message });
+  }
+});
+
+app.get("/api/manifold/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: "Query param 'q' required" });
+    
+    const response = await axios.get("https://api.manifold.markets/v0/search-markets", {
+      params: {
+        term: q,
+        limit: 15,
+        filter: "open",
+      },
+      timeout: 8000,
+    });
+    
+    const markets = (response.data || []).map((m) => ({
+      id: m.id,
+      question: m.question,
+      slug: m.slug,
+      url: m.url,
+      probability: m.probability || 0,
+      volume: m.volume || m.volume24Hours || 0,
+      liquidity: m.liquidity || 0,
+      closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+      creatorName: m.creatorName,
+      creatorUsername: m.creatorUsername,
+    }));
+    
+    res.json({ markets, count: markets.length, query: q });
+  } catch (err) {
+    console.error("Manifold search error:", err.message);
     res.status(500).json({ error: "Search failed", details: err.message });
   }
 });

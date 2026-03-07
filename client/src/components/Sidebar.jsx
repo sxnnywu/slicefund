@@ -5,8 +5,10 @@ const NAV = [
   { id: "home", label: "Dashboard", icon: "▦" },
   { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
   { id: "polymarket", label: "Polymarket", icon: "🟣", badge: "LIVE" },
+  { id: "kalshi", label: "Kalshi", icon: "⚖️", badge: "LIVE" },
+  { id: "manifold", label: "Manifold", icon: "🎲", badge: "LIVE" },
   { id: "baskets", label: "My Baskets", icon: "📈" },
-  { id: "markets", label: "Markets", icon: "📊" },
+  { id: "markets", label: "All Markets", icon: "📊" },
 ];
 const TOOLS = [
   { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },

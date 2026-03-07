@@ -28,7 +28,7 @@ export default function PanelMarkets() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [platform, setPlatform] = useState("all"); // "all", "polymarket", "kalshi"
+  const [platform, setPlatform] = useState("all"); // "all", "polymarket", "kalshi", "manifold"
 
   const fetchMarkets = async () => {
     setLoading(true);
@@ -40,6 +40,9 @@ export default function PanelMarkets() {
       }
       if (platform === "all" || platform === "kalshi") {
         endpoints.push(fetch("/api/kalshi/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Kalshi' }))));
+      }
+      if (platform === "all" || platform === "manifold") {
+        endpoints.push(fetch("/api/manifold/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Manifold' }))));
       }
       
       const results = await Promise.all(endpoints);
@@ -83,6 +86,12 @@ export default function PanelMarkets() {
             >
               Kalshi
             </button>
+            <button 
+              style={{ ...s.filterBtn, ...(platform === "manifold" ? s.filterBtnActive : {}) }}
+              onClick={() => setPlatform("manifold")}
+            >
+              Manifold
+            </button>
           </div>
           <div style={s.action} onClick={fetchMarkets}>↻ Refresh</div>
         </div>
@@ -90,7 +99,7 @@ export default function PanelMarkets() {
         {error && <div style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: 20 }}>{error}</div>}
         {!loading && !error && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
         {!loading && !error && markets.map((m, i) => {
-          const odds = parsePrice(m.outcomePrices || m.yes_price);
+          const odds = parsePrice(m.outcomePrices || m.yes_price || m.probability);
           const vol = m.volume ? `$${(Number(m.volume) / 1000).toFixed(0)}K` : "—";
           const end = (m.endDate || m.closeDate) ? new Date(m.endDate || m.closeDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
           return (

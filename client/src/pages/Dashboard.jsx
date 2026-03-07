@@ -13,6 +13,8 @@ import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
+import PanelKalshi from "../panels/PanelKalshi.jsx";
+import PanelManifold from "../panels/PanelManifold.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
 
@@ -116,6 +118,10 @@ export default function Dashboard() {
         return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} />;
       case "polymarket":
         return <PanelPolymarket />;
+      case "kalshi":
+        return <PanelKalshi />;
+      case "manifold":
+        return <PanelManifold />;
       case "baskets":
         return <PanelBaskets />;
       case "markets":
