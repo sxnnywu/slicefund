@@ -110,6 +110,20 @@ app.use((req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
+const GEMINI_MODEL_NAME = "gemini-2.5-flash";
+const GEMINI_FALLBACK_MODEL = "gemini-2.5-flash-lite";
+
+function isGeminiPermanentFailure(message) {
+  const normalized = String(message || "").toLowerCase();
+  return (
+    normalized.includes("quota exceeded") ||
+    normalized.includes("limit: 0") ||
+    normalized.includes("billing") ||
+    normalized.includes("api key expired") ||
+    normalized.includes("api_key_invalid") ||
+    normalized.includes("invalid api key")
+  );
+}
 
 function parseKalshiPrice(value) {
   if (typeof value === "number" && Number.isFinite(value)) {
@@ -235,15 +249,25 @@ async function fetchKalshiMarkets(params = {}) {
 
 // --- Helper: call Gemini with retry ---
 async function geminiCall(prompt, retries = 3) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   for (let i = 0; i < retries; i++) {
     try {
+      const modelName = i === 0 ? GEMINI_MODEL_NAME : GEMINI_FALLBACK_MODEL;
+      const model = genAI.getGenerativeModel({ model: modelName });
       const result = await model.generateContent(prompt);
       return result.response.text().trim();
     } catch (err) {
-      if (err.message?.includes("429") && i < retries - 1) {
+      const message = String(err?.message || "");
+      const permanentFailure = isGeminiPermanentFailure(message);
+      const transientFailure =
+        message.includes("429") ||
+        message.includes("404") ||
+        message.includes("500") ||
+        message.includes("503");
+      const shouldRetry = transientFailure && !permanentFailure && i < retries - 1;
+
+      if (shouldRetry) {
         const wait = (i + 1) * 3000; // 3s, 6s
-        console.log(`    Rate limited, waiting ${wait / 1000}s...`);
+        console.log(`    Gemini request failed (${message.includes("404") ? "model unavailable" : "rate limited"}), waiting ${wait / 1000}s...`);
         await new Promise((r) => setTimeout(r, wait));
       } else {
         throw err;

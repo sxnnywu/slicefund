@@ -8,8 +8,8 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 const envPath = path.join(projectRoot, ".env");
 
-const MODEL_NAME = "gemini-1.5-flash";
-const FALLBACK_MODELS = ["gemini-1.5-flash-latest"];
+const MODEL_NAME = "gemini-2.5-flash";
+const FALLBACK_MODELS = ["gemini-2.5-flash-lite"];
 const FUNCTION_NAME = "map_thesis_to_markets";
 const BASE_PROMPT =
   "You are a prediction market analyst. Given this thesis, identify the most relevant prediction market questions that would collectively represent this thesis as an index fund basket. Return questions from Polymarket, Kalshi, and Manifold. Thesis:";
