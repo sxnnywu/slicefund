@@ -58,20 +58,7 @@ export default function PanelProfile() {
         </div>
       </div>
 
-      <div style={{ marginBottom: 28, marginTop: 28 }}>
-        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12 }}>App Activity</h3>
-        <div style={styles.activityGrid}>
-          {appStats.map((stat) => (
-            <div key={stat.label} style={styles.activityCard} className="sf-card-smooth">
-              <div style={styles.activityCardBg} />
-              <div style={styles.activityCardContent}>
-                <div style={styles.activityValue}>{stat.value}</div>
-                <div style={styles.activityLabel}>{stat.label}</div>
-              </div>
-            </div>
-          ))}
-        </div>
-      </div>
+      
 
       <div style={styles.panelGrid}>
         <div style={styles.panelCard} className="sf-card-smooth">
@@ -86,24 +73,21 @@ export default function PanelProfile() {
             >
               Re-authenticate
             </button>
+            <button
+              className="sf-btn-smooth"
+              style={styles.logoutButton}
+              onClick={() =>
+                logout({ logoutParams: { returnTo: window.location.origin } })
+              }
+            >
+              Logout
+            </button>
           </div>
           <div style={styles.hint}>
             Built with Auth0 social login, session management, and claim-based
             identity state.
           </div>
         </div>
-      </div>
-
-      <div style={{ marginTop: 28 }}>
-        <button
-          className="sf-btn-smooth"
-          style={styles.logoutButtonBottom}
-          onClick={() =>
-            logout({ logoutParams: { returnTo: window.location.origin } })
-          }
-        >
-          Logout
-        </button>
       </div>
     </>
   );
@@ -365,16 +349,5 @@ const styles = {
     color: "var(--text-dim)",
     letterSpacing: 0.4,
     textTransform: "uppercase",
-  },
-  logoutButtonBottom: {
-    width: "100%",
-    border: "1px solid rgba(255,77,106,0.4)",
-    background: "var(--red-light)",
-    color: "var(--red)",
-    borderRadius: 12,
-    padding: "14px 16px",
-    fontSize: 14,
-    fontWeight: 700,
-    cursor: "pointer",
   },
 };
