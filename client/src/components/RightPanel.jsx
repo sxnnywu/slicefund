@@ -60,7 +60,7 @@ export default function RightPanel() {
           Latest Generated Card
         </div>
         <div style={styles.preview}>
-          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", marginBottom: 10, fontFamily: "'DM Mono', monospace" }}>BACKBOARD · THESIS CARD</div>
+          <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: 2, color: "rgba(255,255,255,0.3)", textTransform: "uppercase", marginBottom: 10, fontFamily: "'DM Mono', monospace" }}>SLICEFUND · THESIS CARD</div>
           <div style={{ fontSize: 13, fontWeight: 700, color: "#fff", marginBottom: 12, lineHeight: 1.4 }}>"AI regulation will tighten significantly in 2025"</div>
           <div style={{ display: "flex", gap: 16 }}>
             <div><div style={styles.cldL}>Markets</div><div style={styles.cldV}>5</div></div>

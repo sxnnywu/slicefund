@@ -16,7 +16,7 @@ export default function Sidebar({ activePanel, onNavigate }) {
   return (
     <div style={styles.sidebar}>
       <div style={styles.logo}>
-        <div style={styles.logoText}>BACK<span style={{ color: "var(--text-dim)" }}>BOARD</span></div>
+        <div style={styles.logoText}>SLICEFUND</div>
         <div style={styles.logoSub}>THESIS ENGINE v0.1</div>
       </div>
       <div style={styles.sectionLabel}>Main</div>

@@ -32,7 +32,7 @@ export default function SignIn({ onSignIn }) {
               <polyline points="16 7 22 7 22 13" />
             </svg>
           </div>
-          <h1 style={styles.logoText}>BACKBOARD</h1>
+          <h1 style={styles.logoText}>SLICEFUND</h1>
           <p style={styles.logoSub}>Prediction Market Intelligence</p>
         </div>
 
