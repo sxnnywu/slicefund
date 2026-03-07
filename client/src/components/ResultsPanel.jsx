@@ -52,12 +52,13 @@ export default function ResultsPanel({ data }) {
         <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>No relevant markets found.</div>
       ) : (
         <div>
-          <div style={styles.sectionTitle}>🎯 Top Polymarket Picks</div>
+          <div style={styles.sectionTitle}>🎯 Top Market Picks</div>
           {picks.map((pick, i) => {
             const isYes = pick.suggested_position === "YES";
             const priceNum = parseFloat(pick.current_price);
             const price = !isNaN(priceNum) ? `${(priceNum < 1 ? priceNum * 100 : priceNum).toFixed(0)}¢` : "—";
             const scoreColor = pick.relevance_score >= 8 ? "var(--green)" : pick.relevance_score >= 5 ? "#FFB800" : "var(--text-dim)";
+            const platform = pick.platform || 'Polymarket';
             return (
               <div key={pick.id || i} style={styles.row}>
                 <div style={styles.rank}>#{i + 1}</div>
@@ -68,6 +69,7 @@ export default function ResultsPanel({ data }) {
                   </div>
                   <p style={styles.oneLiner}>{pick.one_liner}</p>
                   <div style={styles.bottomRow}>
+                    <span style={styles.platformBadge}>{platform}</span>
                     <span style={{
                       ...styles.position,
                       background: isYes ? "var(--green-light)" : "var(--red-light)",
@@ -76,9 +78,9 @@ export default function ResultsPanel({ data }) {
                       {pick.suggested_position} @ {price}
                     </span>
                     {pick.volume && <span style={styles.vol}>Vol: ${Number(pick.volume).toLocaleString()}</span>}
-                    {pick.polymarketUrl && (
-                      <a href={pick.polymarketUrl} target="_blank" rel="noopener noreferrer" style={styles.link}>
-                        Polymarket ↗
+                    {pick.marketUrl && (
+                      <a href={pick.marketUrl} target="_blank" rel="noopener noreferrer" style={styles.link}>
+                        View Market ↗
                       </a>
                     )}
                   </div>
@@ -115,6 +117,17 @@ const styles = {
   score: { fontSize: 13, fontWeight: 700, flexShrink: 0, fontFamily: "'DM Mono', monospace" },
   oneLiner: { fontSize: 12, color: "var(--text-mid)", lineHeight: 1.5, fontStyle: "italic", margin: "6px 0 8px" },
   bottomRow: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  platformBadge: { 
+    fontSize: 10, 
+    padding: "3px 8px", 
+    borderRadius: 4, 
+    fontFamily: "'DM Mono', monospace", 
+    fontWeight: 600, 
+    background: "var(--blue-light)", 
+    color: "var(--blue)",
+    letterSpacing: 0.5,
+    textTransform: "uppercase",
+  },
   position: { padding: "3px 10px", borderRadius: 6, fontSize: 12, fontWeight: 600, fontFamily: "'DM Mono', monospace" },
   vol: { color: "var(--text-dim)", fontSize: 11, fontFamily: "'DM Mono', monospace" },
   link: { color: "var(--blue)", fontSize: 11, textDecoration: "none", marginLeft: "auto", fontWeight: 600 },

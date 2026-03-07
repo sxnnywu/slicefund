@@ -1,6 +1,9 @@
 import React, { useState, useEffect } from "react";
 
 function parsePrice(outcomePrices) {
+  if (typeof outcomePrices === 'number') {
+    return (outcomePrices * 100).toFixed(0);
+  }
   try {
     const prices = typeof outcomePrices === "string" ? JSON.parse(outcomePrices) : outcomePrices;
     if (Array.isArray(prices) && prices.length > 0) {
@@ -25,15 +28,26 @@ export default function PanelMarkets() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [platform, setPlatform] = useState("all"); // "all", "polymarket", "kalshi", "manifold"
 
   const fetchMarkets = async () => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/polymarket/trending");
-      if (!res.ok) throw new Error("Failed to fetch markets");
-      const data = await res.json();
-      setMarkets(data.markets || []);
+      const endpoints = [];
+      if (platform === "all" || platform === "polymarket") {
+        endpoints.push(fetch("/api/polymarket/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Polymarket' }))));
+      }
+      if (platform === "all" || platform === "kalshi") {
+        endpoints.push(fetch("/api/kalshi/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Kalshi' }))));
+      }
+      if (platform === "all" || platform === "manifold") {
+        endpoints.push(fetch("/api/manifold/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Manifold' }))));
+      }
+      
+      const results = await Promise.all(endpoints);
+      const allMarkets = results.flat();
+      setMarkets(allMarkets);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -43,7 +57,7 @@ export default function PanelMarkets() {
 
   useEffect(() => {
     fetchMarkets();
-  }, []);
+  }, [platform]);
 
   return (
     <>
@@ -52,23 +66,48 @@ export default function PanelMarkets() {
         <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>Browse all active prediction markets</p>
       </div>
       <div style={s.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>Trending Markets</div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20, alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8 }}>
+            <button 
+              style={{ ...s.filterBtn, ...(platform === "all" ? s.filterBtnActive : {}) }}
+              onClick={() => setPlatform("all")}
+            >
+              All
+            </button>
+            <button 
+              style={{ ...s.filterBtn, ...(platform === "polymarket" ? s.filterBtnActive : {}) }}
+              onClick={() => setPlatform("polymarket")}
+            >
+              Polymarket
+            </button>
+            <button 
+              style={{ ...s.filterBtn, ...(platform === "kalshi" ? s.filterBtnActive : {}) }}
+              onClick={() => setPlatform("kalshi")}
+            >
+              Kalshi
+            </button>
+            <button 
+              style={{ ...s.filterBtn, ...(platform === "manifold" ? s.filterBtnActive : {}) }}
+              onClick={() => setPlatform("manifold")}
+            >
+              Manifold
+            </button>
+          </div>
           <div style={s.action} onClick={fetchMarkets}>↻ Refresh</div>
         </div>
         {loading && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>Loading markets...</div>}
         {error && <div style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: 20 }}>{error}</div>}
         {!loading && !error && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
         {!loading && !error && markets.map((m, i) => {
-          const odds = parsePrice(m.outcomePrices);
+          const odds = parsePrice(m.outcomePrices || m.yes_price || m.probability);
           const vol = m.volume ? `$${(Number(m.volume) / 1000).toFixed(0)}K` : "—";
-          const end = m.endDate ? new Date(m.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+          const end = (m.endDate || m.closeDate) ? new Date(m.endDate || m.closeDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
           return (
             <div key={i} style={s.row}>
               <div style={s.icon}>{getIcon(m.question)}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={s.q}>{m.question}</div>
-                <div style={s.meta}>POLYMARKET · EXPIRES {end} · {vol} VOL</div>
+                <div style={s.meta}>{m.platform?.toUpperCase() || 'POLYMARKET'} · EXPIRES {end} · {vol} VOL</div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={s.odds}>{odds}¢</div>
@@ -87,6 +126,23 @@ export default function PanelMarkets() {
 const s = {
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)" },
   action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", cursor: "pointer", fontFamily: "'DM Mono',monospace" },
+  filterBtn: {
+    padding: "6px 12px",
+    background: "none",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text-dim)",
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  filterBtnActive: {
+    background: "var(--blue)",
+    color: "#fff",
+    borderColor: "var(--blue)",
+  },
   row: { display: "flex", alignItems: "center", gap: 14, padding: "14px 8px", borderBottom: "1px solid var(--border2)", cursor: "pointer", borderRadius: 8, margin: "0 -8px" },
   icon: { width: 36, height: 36, borderRadius: 10, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, background: "var(--blue-light)" },
   q: { fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },

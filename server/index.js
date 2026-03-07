@@ -161,7 +161,8 @@ async function searchPolymarket(keywords) {
         }
       );
       if (response.data && Array.isArray(response.data)) {
-        allMarkets.push(...response.data);
+        const marketsWithPlatform = response.data.map(m => ({ ...m, platform: 'Polymarket' }));
+        allMarkets.push(...marketsWithPlatform);
       }
     } catch (err) {
       console.error(`Polymarket search failed for "${keyword}":`, err.message);
@@ -169,6 +170,111 @@ async function searchPolymarket(keywords) {
   }
 
   // Deduplicate by market id
+  const seen = new Set();
+  return allMarkets.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+}
+
+// --- Agent 2b: Search Kalshi for relevant markets ---
+async function searchKalshi(keywords) {
+  const allMarkets = [];
+
+  for (const keyword of keywords) {
+    try {
+      const response = await axios.get(
+        "https://trading-api.kalshi.com/trade-api/v2/events",
+        {
+          params: {
+            limit: 10,
+            status: "open",
+            with_nested_markets: true,
+          },
+          timeout: 8000,
+        }
+      );
+      
+      const events = response.data?.events || [];
+      const keywordLower = keyword.toLowerCase();
+      
+      for (const event of events) {
+        const titleMatch = event.title?.toLowerCase().includes(keywordLower);
+        
+        if (event.markets && Array.isArray(event.markets) && titleMatch) {
+          for (const market of event.markets) {
+            if (market.status === "open") {
+              allMarkets.push({
+                id: market.ticker,
+                question: market.title || event.title,
+                outcomePrices: JSON.stringify([market.yes_bid || market.last_price || 0]),
+                volume: market.volume || 0,
+                liquidity: market.open_interest || 0,
+                endDate: market.close_time || event.close_date,
+                slug: market.ticker,
+                platform: 'Kalshi',
+                ticker: market.ticker,
+              });
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.error(`Kalshi search failed for "${keyword}":`, err.message);
+    }
+  }
+
+  // Deduplicate by ticker
+  const seen = new Set();
+  return allMarkets.filter((m) => {
+    if (seen.has(m.id)) return false;
+    seen.add(m.id);
+    return true;
+  });
+}
+
+// --- Agent 2c: Search Manifold for relevant markets ---
+async function searchManifold(keywords) {
+  const allMarkets = [];
+
+  for (const keyword of keywords) {
+    try {
+      const response = await axios.get(
+        "https://api.manifold.markets/v0/search-markets",
+        {
+          params: {
+            term: keyword,
+            limit: 10,
+          },
+          timeout: 8000,
+        }
+      );
+      
+      const markets = response.data || [];
+      
+      for (const market of markets) {
+        if (market.isResolved === false && market.closeTime > Date.now()) {
+          allMarkets.push({
+            id: market.id,
+            question: market.question,
+            description: market.description || market.textDescription || "",
+            outcomePrices: JSON.stringify([market.probability || 0]),
+            volume: market.volume || market.volume24Hours || 0,
+            liquidity: market.totalLiquidity || 0,
+            endDate: new Date(market.closeTime).toISOString(),
+            slug: market.slug,
+            platform: 'Manifold',
+            url: market.url,
+          });
+        }
+      }
+    } catch (err) {
+      console.error(`Manifold search failed for "${keyword}":`, err.message);
+    }
+  }
+
+  // Deduplicate by id
   const seen = new Set();
   return allMarkets.filter((m) => {
     if (seen.has(m.id)) return false;
@@ -196,10 +302,11 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
     endDate: m.endDate,
     image: m.image,
     slug: m.slug,
+    platform: m.platform || 'Polymarket',
   }));
 
   const text = await geminiCall(
-    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug". Return ONLY a JSON array.`
+    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket, Kalshi, and Manifold:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug", "platform". Return ONLY a JSON array.`
   );
 
   const match = text.match(/\[[\s\S]*\]/);
@@ -209,15 +316,23 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
       // Merge image data back in
       return ranked.map((r) => {
         const original = markets.find((m) => m.id === r.id);
+        const platform = r.platform || original?.platform || 'Polymarket';
+        let marketUrl = null;
+        if (platform === 'Polymarket' && r.slug) {
+          marketUrl = `https://polymarket.com/event/${r.slug}`;
+        } else if (platform === 'Kalshi' && r.slug) {
+          marketUrl = `https://kalshi.com/markets/${r.slug}`;
+        } else if (platform === 'Manifold') {
+          marketUrl = original?.url || `https://manifold.markets/${r.slug}`;
+        }
         return {
           ...r,
+          platform,
           image: original?.image || null,
           volume: original?.volume || null,
           liquidity: original?.liquidity || null,
           endDate: original?.endDate || null,
-          polymarketUrl: r.slug
-            ? `https://polymarket.com/event/${r.slug}`
-            : null,
+          marketUrl,
         };
       });
     } catch (e) {
@@ -256,6 +371,15 @@ function fallbackRankMarkets(markets, thesis) {
   return markets.slice(0, 5).map((market, index) => {
     const prices = Array.isArray(market.outcomePrices) ? market.outcomePrices : [];
     const firstPrice = prices.length > 0 ? Number(prices[0]) : null;
+    const platform = market.platform || 'Polymarket';
+    let marketUrl = null;
+    if (platform === 'Polymarket' && market.slug) {
+      marketUrl = `https://polymarket.com/event/${market.slug}`;
+    } else if (platform === 'Kalshi' && market.slug) {
+      marketUrl = `https://kalshi.com/markets/${market.slug}`;
+    } else if (platform === 'Manifold') {
+      marketUrl = market.url || `https://manifold.markets/${market.slug}`;
+    }
 
     return {
       id: market.id,
@@ -265,13 +389,12 @@ function fallbackRankMarkets(markets, thesis) {
       current_price: Number.isFinite(firstPrice) ? firstPrice : null,
       one_liner: `Fallback ranking for thesis: ${thesis}`,
       slug: market.slug || null,
+      platform,
       image: market.image || null,
       volume: market.volume || null,
       liquidity: market.liquidity || null,
       endDate: market.endDate || null,
-      polymarketUrl: market.slug
-        ? `https://polymarket.com/event/${market.slug}`
-        : null,
+      marketUrl,
     };
   });
 }
@@ -596,10 +719,15 @@ app.post("/api/analyze", async (req, res) => {
 
     console.log(`    Keywords (${keywordStrategy}):`, keywords);
 
-    // Step 2: Search Polymarket
-    console.log("  → Agent 2: Searching Polymarket...");
-    const markets = await searchPolymarket(keywords);
-    console.log(`    Found ${markets.length} markets`);
+    // Step 2: Search Polymarket, Kalshi, and Manifold
+    console.log("  → Agent 2: Searching markets...");
+    const [polymarkets, kalshiMarkets, manifoldMarkets] = await Promise.all([
+      searchPolymarket(keywords),
+      searchKalshi(keywords),
+      searchManifold(keywords),
+    ]);
+    const markets = [...polymarkets, ...kalshiMarkets, ...manifoldMarkets];
+    console.log(`    Found ${markets.length} markets (${polymarkets.length} Polymarket, ${kalshiMarkets.length} Kalshi, ${manifoldMarkets.length} Manifold)`);
 
     // Step 3: Rank and explain
     console.log("  → Agent 3: Ranking markets...");
@@ -727,6 +855,176 @@ app.get("/api/polymarket/search", async (req, res) => {
     }));
     res.json({ markets, count: markets.length, query: q });
   } catch (err) {
+    res.status(500).json({ error: "Search failed", details: err.message });
+  }
+});
+
+// Kalshi markets endpoints
+app.get("/api/kalshi/trending", async (req, res) => {
+  try {
+    const response = await axios.get("https://trading-api.kalshi.com/trade-api/v2/events", {
+      params: {
+        limit: 20,
+        status: "open",
+        with_nested_markets: true,
+      },
+      timeout: 10000,
+    });
+    
+    const events = response.data?.events || [];
+    const markets = [];
+    
+    // Flatten events into markets
+    for (const event of events) {
+      if (event.markets && Array.isArray(event.markets)) {
+        for (const market of event.markets) {
+          if (market.status === "open") {
+            markets.push({
+              id: market.ticker,
+              question: market.title || event.title,
+              eventTitle: event.title,
+              ticker: market.ticker,
+              yes_price: market.yes_bid || market.last_price || 0,
+              no_price: market.no_bid || (1 - (market.last_price || 0)),
+              volume: market.volume || 0,
+              openInterest: market.open_interest || 0,
+              closeDate: market.close_time || event.close_date,
+              category: event.category,
+              seriesTitle: event.series_ticker,
+            });
+          }
+        }
+      }
+    }
+    
+    // Sort by volume and limit to 20
+    markets.sort((a, b) => (b.volume || 0) - (a.volume || 0));
+    const topMarkets = markets.slice(0, 20);
+    
+    res.json({ markets: topMarkets, count: topMarkets.length });
+  } catch (err) {
+    console.error("Kalshi fetch error:", err.message);
+    res.status(500).json({ error: "Failed to fetch from Kalshi", details: err.message });
+  }
+});
+
+app.get("/api/kalshi/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: "Query param 'q' required" });
+    
+    const response = await axios.get("https://trading-api.kalshi.com/trade-api/v2/events", {
+      params: {
+        limit: 15,
+        status: "open",
+        with_nested_markets: true,
+      },
+      timeout: 8000,
+    });
+    
+    const events = response.data?.events || [];
+    const markets = [];
+    const queryLower = q.toLowerCase();
+    
+    // Filter and flatten events into markets
+    for (const event of events) {
+      const titleMatch = event.title?.toLowerCase().includes(queryLower);
+      
+      if (event.markets && Array.isArray(event.markets)) {
+        for (const market of event.markets) {
+          const marketMatch = market.title?.toLowerCase().includes(queryLower);
+          if ((titleMatch || marketMatch) && market.status === "open") {
+            markets.push({
+              id: market.ticker,
+              question: market.title || event.title,
+              eventTitle: event.title,
+              ticker: market.ticker,
+              yes_price: market.yes_bid || market.last_price || 0,
+              no_price: market.no_bid || (1 - (market.last_price || 0)),
+              volume: market.volume || 0,
+              openInterest: market.open_interest || 0,
+              closeDate: market.close_time || event.close_date,
+              category: event.category,
+            });
+          }
+        }
+      }
+    }
+    
+    res.json({ markets: markets.slice(0, 15), count: markets.length, query: q });
+  } catch (err) {
+    console.error("Kalshi search error:", err.message);
+    res.status(500).json({ error: "Search failed", details: err.message });
+  }
+});
+
+app.get("/api/manifold/trending", async (req, res) => {
+  try {
+    const response = await axios.get("https://api.manifold.markets/v0/markets", {
+      params: {
+        limit: 100,
+      },
+      timeout: 10000,
+    });
+    
+    // Filter out resolved markets and sort by liquidity
+    const markets = (response.data || [])
+      .filter((m) => !m.isResolved && m.closeTime > Date.now())
+      .map((m) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        url: m.url,
+        probability: m.probability || 0,
+        volume: m.volume || m.volume24Hours || 0,
+        liquidity: m.totalLiquidity || 0,
+        closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+        creatorName: m.creatorName,
+        creatorUsername: m.creatorUsername,
+      }))
+      .sort((a, b) => b.liquidity - a.liquidity)
+      .slice(0, 20);
+    
+    res.json({ markets, count: markets.length });
+  } catch (err) {
+    console.error("Manifold fetch error:", err.message);
+    res.status(500).json({ error: "Failed to fetch from Manifold", details: err.message });
+  }
+});
+
+app.get("/api/manifold/search", async (req, res) => {
+  try {
+    const { q } = req.query;
+    if (!q) return res.status(400).json({ error: "Query param 'q' required" });
+    
+    const response = await axios.get("https://api.manifold.markets/v0/search-markets", {
+      params: {
+        term: q,
+        limit: 50,
+      },
+      timeout: 8000,
+    });
+    
+    // Filter out resolved markets
+    const markets = (response.data || [])
+      .filter((m) => !m.isResolved && m.closeTime > Date.now())
+      .map((m) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        url: m.url,
+        probability: m.probability || 0,
+        volume: m.volume || m.volume24Hours || 0,
+        liquidity: m.totalLiquidity || 0,
+        closeDate: m.closeTime ? new Date(m.closeTime).toISOString() : null,
+        creatorName: m.creatorName,
+        creatorUsername: m.creatorUsername,
+      }))
+      .slice(0, 15);
+    
+    res.json({ markets, count: markets.length, query: q });
+  } catch (err) {
+    console.error("Manifold search error:", err.message);
     res.status(500).json({ error: "Search failed", details: err.message });
   }
 });
