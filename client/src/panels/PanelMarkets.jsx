@@ -1,27 +1,85 @@
-import React from "react";
+import React, { useState, useEffect } from "react";
 
-const MKTS = [
-  { icon: "🇺🇸", q: "Will Trump impose 25%+ tariffs on all Chinese goods by June 2025?", src: "POLYMARKET", exp: "JUN 30", vol: "$2.4M", odds: 71 },
-  { icon: "🤖", q: "Will EU AI Act enforcement begin before Q4 2025?", src: "POLYMARKET", exp: "SEP 30", vol: "$1.8M", odds: 67 },
-  { icon: "📈", q: "Will the Fed cut rates at the March 2025 FOMC meeting?", src: "KALSHI", exp: "MAR 20", vol: "$3.2M", odds: 38 },
-  { icon: "₿", q: "Will Bitcoin hit $100,000 before June 2025?", src: "POLYMARKET", exp: "JUN 1", vol: "$2.8M", odds: 54 },
-  { icon: "🏛️", q: "Will the US pass a federal AI bill in 2025?", src: "KALSHI", exp: "DEC 31", vol: "$740K", odds: 31 },
-  { icon: "🌍", q: "Will Canada enter a recession in 2025?", src: "POLYMARKET", exp: "DEC 31", vol: "$560K", odds: 44 },
-];
+function parsePrice(outcomePrices) {
+  try {
+    const prices = typeof outcomePrices === "string" ? JSON.parse(outcomePrices) : outcomePrices;
+    if (Array.isArray(prices) && prices.length > 0) {
+      return (parseFloat(prices[0]) * 100).toFixed(0);
+    }
+  } catch {}
+  return "—";
+}
+
+function getIcon(question) {
+  const q = question.toLowerCase();
+  if (q.includes("trump") || q.includes("tariff")) return "🇺🇸";
+  if (q.includes("ai") || q.includes("tech")) return "🤖";
+  if (q.includes("fed") || q.includes("rate") || q.includes("interest")) return "📈";
+  if (q.includes("bitcoin") || q.includes("crypto")) return "₿";
+  if (q.includes("congress") || q.includes("bill") || q.includes("law")) return "🏛️";
+  if (q.includes("recession") || q.includes("economy")) return "🌍";
+  return "📊";
+}
 
 export default function PanelMarkets() {
+  const [markets, setMarkets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  const fetchMarkets = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/polymarket/trending");
+      if (!res.ok) throw new Error("Failed to fetch markets");
+      const data = await res.json();
+      setMarkets(data.markets || []);
+    } catch (err) {
+      setError(err.message);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchMarkets();
+  }, []);
+
   return (
     <>
-      <div style={{ marginBottom: 36 }}><h2 style={{ fontSize: 24, fontWeight: 700 }}>Markets</h2><p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>Browse all active prediction markets</p></div>
+      <div style={{ marginBottom: 36 }}>
+        <h2 style={{ fontSize: 24, fontWeight: 700 }}>Markets</h2>
+        <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>Browse all active prediction markets</p>
+      </div>
       <div style={s.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Trending Markets</div><div style={s.action}>Filter</div></div>
-        {MKTS.map((m, i) => (
-          <div key={i} style={s.row}>
-            <div style={s.icon}>{m.icon}</div>
-            <div style={{ flex: 1, minWidth: 0 }}><div style={s.q}>{m.q}</div><div style={s.meta}>{m.src} · EXPIRES {m.exp} · {m.vol} VOL</div></div>
-            <div style={{ textAlign: "right", flexShrink: 0 }}><div style={s.odds}>{m.odds}¢</div><div style={s.bar}><div style={{ height: "100%", width: `${m.odds}%`, background: "linear-gradient(90deg,var(--blue),var(--green))", borderRadius: 99 }} /></div><div style={{ fontSize: 10, color: "var(--text-dim)" }}>YES</div></div>
-          </div>
-        ))}
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Trending Markets</div>
+          <div style={s.action} onClick={fetchMarkets}>↻ Refresh</div>
+        </div>
+        {loading && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>Loading markets...</div>}
+        {error && <div style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: 20 }}>{error}</div>}
+        {!loading && !error && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
+        {!loading && !error && markets.map((m, i) => {
+          const odds = parsePrice(m.outcomePrices);
+          const vol = m.volume ? `$${(Number(m.volume) / 1000).toFixed(0)}K` : "—";
+          const end = m.endDate ? new Date(m.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+          return (
+            <div key={i} style={s.row}>
+              <div style={s.icon}>{getIcon(m.question)}</div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={s.q}>{m.question}</div>
+                <div style={s.meta}>POLYMARKET · EXPIRES {end} · {vol} VOL</div>
+              </div>
+              <div style={{ textAlign: "right", flexShrink: 0 }}>
+                <div style={s.odds}>{odds}¢</div>
+                <div style={s.bar}>
+                  <div style={{ height: "100%", width: `${odds}%`, background: "linear-gradient(90deg,var(--blue),var(--green))", borderRadius: 99 }} />
+                </div>
+                <div style={{ fontSize: 10, color: "var(--text-dim)" }}>YES</div>
+              </div>
+            </div>
+          );
+        })}
       </div>
     </>
   );
