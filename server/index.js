@@ -13,6 +13,8 @@ import { mapThesisToMarkets } from "../ai/thesisMapper.js";
 import { scoreArbOpportunity } from "../ai/arbScorer.js";
 import { analyzeThesis } from "../agents/thesisResearcher.js";
 import { checkBasketRebalance } from "../agents/indexRebalancer.js";
+import { validateArbitrage } from "../agents/arbitrageScanner.js";
+import { dispatchArbitrageAlert } from "../agents/alertDispatcher.js";
 
 const app = express();
 app.use(cors());
@@ -187,6 +189,112 @@ function fallbackRankMarkets(markets, thesis) {
         : null,
     };
   });
+}
+
+function stripCodeFences(text) {
+  if (typeof text !== "string") return "";
+  return text
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+}
+
+function parseAgentPayload(content) {
+  if (content && typeof content === "object" && !Array.isArray(content)) {
+    return content;
+  }
+
+  if (typeof content !== "string") {
+    return null;
+  }
+
+  const normalized = stripCodeFences(content);
+
+  try {
+    return JSON.parse(normalized);
+  } catch {
+    const objectMatch = normalized.match(/\{[\s\S]*\}/);
+    if (!objectMatch) {
+      return null;
+    }
+
+    try {
+      return JSON.parse(objectMatch[0]);
+    } catch {
+      return null;
+    }
+  }
+}
+
+function toFiniteNumber(value, fallback = null) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string") {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return fallback;
+}
+
+function clampConfidence(value, fallback = 0.5) {
+  const numeric = toFiniteNumber(value, fallback);
+  return Math.max(0, Math.min(1, numeric));
+}
+
+function normalizeDecision(value, fallback = "REJECTED") {
+  const decision = String(value || "").toUpperCase();
+  return ["CONFIRMED", "REJECTED"].includes(decision) ? decision : fallback;
+}
+
+function normalizeUrgency(value, fallback = "MEDIUM") {
+  const urgency = String(value || "").toUpperCase();
+  return ["LOW", "MEDIUM", "HIGH"].includes(urgency) ? urgency : fallback;
+}
+
+function normalizePlatforms(platforms, platformA, platformB) {
+  if (Array.isArray(platforms) && platforms.length >= 2) {
+    return platforms.slice(0, 2).map((platform) => String(platform));
+  }
+  return [platformA, platformB];
+}
+
+function defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice) {
+  const buyFirst = leftPrice < rightPrice;
+
+  return [
+    {
+      platform: platformA,
+      action: buyFirst ? "BUY" : "SELL",
+    },
+    {
+      platform: platformB,
+      action: buyFirst ? "SELL" : "BUY",
+    },
+  ];
+}
+
+function normalizeActions(actions, platformA, platformB, leftPrice, rightPrice) {
+  const fallback = defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice);
+
+  if (!Array.isArray(actions) || actions.length < 2) {
+    return fallback;
+  }
+
+  const normalized = actions.slice(0, 2).map((entry, index) => {
+    const fallbackEntry = fallback[index];
+    const platform = typeof entry?.platform === "string" && entry.platform.trim().length > 0
+      ? entry.platform
+      : fallbackEntry.platform;
+
+    const action = String(entry?.action || fallbackEntry.action).toUpperCase();
+    const normalizedAction = action === "BUY" || action === "SELL" ? action : fallbackEntry.action;
+
+    return {
+      platform,
+      action: normalizedAction,
+    };
+  });
+
+  return normalized.length === 2 ? normalized : fallback;
 }
 
 // --- Main endpoint ---
@@ -428,7 +536,94 @@ app.post("/api/scan", async (req, res) => {
     console.log(`[/api/scan] Analyzing: "${question}"`);
     console.log(`  ${platformA} @ ${leftPrice} vs ${platformB} @ ${rightPrice}`);
 
-    // Score the arb opportunity (Gemini-powered decision)
+    try {
+      const scannerMessage = `Raw alert: ${platformA} YES @ ${leftPrice}, ${platformB} YES @ ${rightPrice}, question: ${question}. Return ONLY valid JSON with keys: decision (CONFIRMED/REJECTED), spread (number), reasoning (string), confidence (number 0..1). No markdown.`;
+      const scannerResponse = await validateArbitrage(scannerMessage);
+      const scannerPayload = parseAgentPayload(scannerResponse?.content);
+
+      if (!scannerPayload || typeof scannerPayload !== "object") {
+        throw new Error("ArbitrageScanner returned unparseable output");
+      }
+
+      const scannerDecision = normalizeDecision(scannerPayload.decision, "REJECTED");
+      const scannerSpread = toFiniteNumber(
+        scannerPayload.spread,
+        Math.abs(rightPrice - leftPrice)
+      );
+      const scannerConfidence = clampConfidence(scannerPayload.confidence, 0.5);
+      const scannerReasoning =
+        typeof scannerPayload.reasoning === "string" && scannerPayload.reasoning.trim().length > 0
+          ? scannerPayload.reasoning.trim()
+          : "Arbitrage scan completed.";
+
+      console.log(
+        `  → ArbitrageScanner: ${scannerDecision}, Spread: ${scannerSpread}, Confidence: ${scannerConfidence}`
+      );
+
+      const dispatchMessage = `Trade analysis: decision: ${scannerDecision}, ${platformA} YES @ ${leftPrice}, ${platformB} YES @ ${rightPrice}, question: ${question}, spread: ${scannerSpread}, confidence: ${scannerConfidence}, reasoning: ${scannerReasoning}. Return ONLY valid JSON with keys: decision (CONFIRMED/REJECTED), title, summary, platforms (array of 2 strings), spread (number), confidence (number 0..1), actions (array of {platform, action BUY/SELL}), urgency (LOW/MEDIUM/HIGH), risk_flags (array of strings). No markdown.`;
+      const dispatcherResponse = await dispatchArbitrageAlert(dispatchMessage);
+      const dispatcherPayload = parseAgentPayload(dispatcherResponse?.content);
+
+      if (!dispatcherPayload || typeof dispatcherPayload !== "object") {
+        throw new Error("AlertDispatcher returned unparseable output");
+      }
+
+      const decision = normalizeDecision(dispatcherPayload.decision, scannerDecision);
+      const spread = toFiniteNumber(dispatcherPayload.spread, scannerSpread);
+      const confidence = clampConfidence(dispatcherPayload.confidence, scannerConfidence);
+      const titleWords = question.split(" ").slice(0, 8).join(" ");
+      const title =
+        typeof dispatcherPayload.title === "string" && dispatcherPayload.title.trim().length > 0
+          ? dispatcherPayload.title.trim()
+          : titleWords.length > 1
+            ? titleWords
+            : question.slice(0, 50);
+      const summary =
+        typeof dispatcherPayload.summary === "string" && dispatcherPayload.summary.trim().length > 0
+          ? dispatcherPayload.summary.trim()
+          : scannerReasoning;
+      const platforms = normalizePlatforms(dispatcherPayload.platforms, platformA, platformB);
+      const actions = normalizeActions(
+        dispatcherPayload.actions,
+        platformA,
+        platformB,
+        leftPrice,
+        rightPrice
+      );
+      const urgency = normalizeUrgency(dispatcherPayload.urgency, "MEDIUM");
+      const riskFlags = Array.isArray(dispatcherPayload.risk_flags)
+        ? dispatcherPayload.risk_flags.filter(
+            (flag) => typeof flag === "string" && flag.trim().length > 0
+          )
+        : [];
+
+      const alert = {
+        id: `scan-${Date.now()}`,
+        decision,
+        title,
+        summary,
+        platforms,
+        spread,
+        adjusted_spread: toFiniteNumber(dispatcherPayload.adjusted_spread, null),
+        confidence,
+        priceA: leftPrice,
+        priceB: rightPrice,
+        question,
+        actions,
+        urgency,
+        risk_flags: riskFlags,
+        source: "agents",
+        timestamp: new Date().toISOString(),
+      };
+
+      console.log(`  ✓ AlertDispatcher formatted: ${alert.decision} ${alert.title}`);
+
+      return res.json(alert);
+    } catch (agentChainError) {
+      console.error(`  ! Agent chain failed, using Gemini fallback: ${agentChainError.message}`);
+    }
+
+    // Fallback: Gemini scorer
     const score = await scoreArbOpportunity(
       question,
       platformA,
@@ -437,16 +632,12 @@ app.post("/api/scan", async (req, res) => {
       rightPrice
     );
 
-    console.log(`  → Decision: ${score.decision}, Spread: ${score.spread}, Confidence: ${score.confidence}`);
+    console.log(`  → Gemini fallback: ${score.decision}, Spread: ${score.spread}, Confidence: ${score.confidence}`);
 
-    // Map EXPLOIT→CONFIRMED, IGNORE→REJECTED
     const decision = score.decision === "EXPLOIT" ? "CONFIRMED" : "REJECTED";
-
-    // Generate title from question (shortened)
     const titleWords = question.split(" ").slice(0, 8).join(" ");
     const title = titleWords.length > 1 ? titleWords : question.slice(0, 50);
 
-    // Build alert card
     const alert = {
       id: `scan-${Date.now()}`,
       decision,
@@ -459,22 +650,14 @@ app.post("/api/scan", async (req, res) => {
       priceA: leftPrice,
       priceB: rightPrice,
       question,
-      actions: [
-        {
-          platform: platformA,
-          action: leftPrice < rightPrice ? "BUY" : "SELL",
-        },
-        {
-          platform: platformB,
-          action: leftPrice < rightPrice ? "SELL" : "BUY",
-        },
-      ],
+      actions: defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice),
       urgency: score.urgency || "MEDIUM",
       risk_flags: score.risk_flags || [],
+      source: "gemini_fallback",
       timestamp: new Date().toISOString(),
     };
 
-    console.log(`  ✓ Alert formatted: ${alert.decision} ${alert.title}`);
+    console.log(`  ✓ Fallback alert formatted: ${alert.decision} ${alert.title}`);
 
     res.json(alert);
   } catch (err) {
