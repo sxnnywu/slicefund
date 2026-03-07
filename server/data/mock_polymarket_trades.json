@@ -1,0 +1,56 @@
+[
+  {
+    "id": "pm-1772914697527-463b5df3",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "d4tzI6L8DEPl3lsXM2a1kQTjcEAikSyXe1rZ7ho19a2zLVK3NFq19rV52xcdBY7IOhm68AQIbhERQr7tQ1fYAQ==",
+    "market": "Will Trump impose 25%+ tariffs on Canada in 2025",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.42,
+    "size": 40,
+    "status": "FILLED",
+    "filledSize": 40,
+    "avgPrice": 0.42,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.4
+    },
+    "createdAt": "2026-03-07T20:18:17.527Z"
+  },
+  {
+    "id": "pm-1772914697527-299f7bad",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "d4tzI6L8DEPl3lsXM2a1kQTjcEAikSyXe1rZ7ho19a2zLVK3NFq19rV52xcdBY7IOhm68AQIbhERQr7tQ1fYAQ==",
+    "market": "Will US-Canada trade volume drop >10% in 2025",
+    "platform": "Kalshi",
+    "side": "BUY",
+    "price": 0.28,
+    "size": 30,
+    "status": "FILLED",
+    "filledSize": 30,
+    "avgPrice": 0.28,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3
+    },
+    "createdAt": "2026-03-07T20:18:17.527Z"
+  },
+  {
+    "id": "pm-1772914697527-0a41bc95",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "d4tzI6L8DEPl3lsXM2a1kQTjcEAikSyXe1rZ7ho19a2zLVK3NFq19rV52xcdBY7IOhm68AQIbhERQr7tQ1fYAQ==",
+    "market": "Will Canadian auto exports to US fall in Q1 2025",
+    "platform": "Manifold",
+    "side": "BUY",
+    "price": 0.3,
+    "size": 30,
+    "status": "FILLED",
+    "filledSize": 30,
+    "avgPrice": 0.3,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3
+    },
+    "createdAt": "2026-03-07T20:18:17.527Z"
+  }
+]

@@ -1,6 +1,8 @@
 import dotenv from "dotenv";
 import { fileURLToPath } from "url";
 import path from "path";
+import fs from "node:fs/promises";
+import crypto from "node:crypto";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 dotenv.config({ path: path.resolve(__dirname, "../.env") });
@@ -70,6 +72,36 @@ const AGENT_ALIASES = {
   alertdispatcher: "dispatcher",
 };
 
+const MOCK_DATA_DIR = path.resolve(__dirname, "data");
+const MOCK_POLY_TRADES_FILE = path.join(MOCK_DATA_DIR, "mock_polymarket_trades.json");
+
+const MOCK_POLYMARKET_MARKETS = [
+  {
+    id: "pm-m1",
+    slug: "fed-cut-q1-2025",
+    question: "Will the Fed cut rates in Q1 2025?",
+    outcomes: ["YES", "NO"],
+    clobTokenIds: ["yes-fed-cut-q1-2025", "no-fed-cut-q1-2025"],
+    lastPrice: 0.58,
+  },
+  {
+    id: "pm-m2",
+    slug: "btc-80k-apr-2025",
+    question: "Will BTC hit $80K before April 2025?",
+    outcomes: ["YES", "NO"],
+    clobTokenIds: ["yes-btc-80k-apr-2025", "no-btc-80k-apr-2025"],
+    lastPrice: 0.49,
+  },
+  {
+    id: "pm-m3",
+    slug: "ai-regulation-2025",
+    question: "Will AI regulation tighten in 2025?",
+    outcomes: ["YES", "NO"],
+    clobTokenIds: ["yes-ai-reg-2025", "no-ai-reg-2025"],
+    lastPrice: 0.64,
+  },
+];
+
 // Debug: log all incoming requests
 app.use((req, res, next) => {
   console.log(`${req.method} ${req.path}`, JSON.stringify(req.body));
@@ -80,7 +112,7 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // --- Helper: call Gemini with retry ---
 async function geminiCall(prompt, retries = 3) {
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
   for (let i = 0; i < retries; i++) {
     try {
       const result = await model.generateContent(prompt);
@@ -449,6 +481,84 @@ function filterHistoryMessages(messages, options) {
   }
 
   return filtered.slice(-limit);
+}
+
+async function readJsonFile(filePath, fallbackValue) {
+  try {
+    const raw = await fs.readFile(filePath, "utf8");
+    return JSON.parse(raw);
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      return fallbackValue;
+    }
+    throw error;
+  }
+}
+
+async function writeJsonFile(filePath, payload) {
+  await fs.mkdir(MOCK_DATA_DIR, { recursive: true });
+  const serialized = JSON.stringify(payload, null, 2);
+  await fs.writeFile(filePath, serialized, "utf8");
+}
+
+async function appendMockTrades(newTrades) {
+  const existing = await readJsonFile(MOCK_POLY_TRADES_FILE, []);
+  const updated = existing.concat(newTrades);
+  await writeJsonFile(MOCK_POLY_TRADES_FILE, updated);
+  return updated;
+}
+
+function createMockId(prefix) {
+  const suffix = typeof crypto.randomUUID === "function"
+    ? crypto.randomUUID().slice(0, 8)
+    : Math.random().toString(16).slice(2, 10);
+  return `${prefix}-${Date.now()}-${suffix}`;
+}
+
+function normalizeAdjustmentPct(value) {
+  const numeric = toFiniteNumber(value, null);
+  if (numeric === null) return 0;
+  if (numeric > 1) return numeric / 100;
+  return Math.max(0, numeric);
+}
+
+function normalizeWeightFraction(value) {
+  const numeric = toFiniteNumber(value, null);
+  if (numeric === null) return 0;
+  if (numeric > 1) return numeric / 100;
+  return Math.max(0, numeric);
+}
+
+function buildMockTrade({
+  walletAddress,
+  solanaSignature,
+  marketLabel,
+  platform,
+  side,
+  price,
+  size,
+  source,
+  metadata,
+}) {
+  const normalizedPrice = Number.isFinite(price) ? price : 0.5;
+  const normalizedSize = Number.isFinite(size) ? size : 0;
+
+  return {
+    id: createMockId("pm"),
+    walletAddress: walletAddress || null,
+    solanaSignature: solanaSignature || null,
+    market: marketLabel || "Unknown market",
+    platform: platform || "Polymarket",
+    side: String(side || "BUY").toUpperCase(),
+    price: normalizedPrice,
+    size: normalizedSize,
+    status: "FILLED",
+    filledSize: normalizedSize,
+    avgPrice: normalizedPrice,
+    source: source || "mock",
+    metadata: metadata && typeof metadata === "object" ? metadata : {},
+    createdAt: new Date().toISOString(),
+  };
 }
 
 // --- Main endpoint ---
@@ -856,6 +966,295 @@ app.post("/api/basket/rebalance", async (req, res) => {
   } catch (err) {
     console.error("Basket rebalance error:", err.message);
     res.status(500).json({ error: "Basket rebalance failed", details: err.message });
+  }
+});
+
+// Mock Polymarket: list sample markets
+app.get("/api/mock/polymarket/markets", (req, res) => {
+  const query = typeof req.query.q === "string" ? req.query.q.trim().toLowerCase() : "";
+  const limit = parseBoundedInt(req.query.limit, 25, 1, 100);
+  const filtered = query
+    ? MOCK_POLYMARKET_MARKETS.filter((market) =>
+      String(market.question).toLowerCase().includes(query))
+    : MOCK_POLYMARKET_MARKETS;
+
+  res.json({
+    count: Math.min(filtered.length, limit),
+    markets: filtered.slice(0, limit),
+  });
+});
+
+// Mock Polymarket: create an order (auto-filled)
+app.post("/api/mock/polymarket/orders", async (req, res) => {
+  try {
+    const {
+      walletAddress,
+      solanaSignature,
+      marketId,
+      market,
+      platform,
+      side,
+      price,
+      size,
+      metadata,
+    } = req.body || {};
+
+    if (!marketId && !market) {
+      return res.status(400).json({ error: "marketId or market is required" });
+    }
+
+    const selectedMarket = marketId
+      ? MOCK_POLYMARKET_MARKETS.find((m) => m.id === marketId || m.slug === marketId)
+      : null;
+    const marketLabel = market || selectedMarket?.question || marketId;
+
+    const trade = buildMockTrade({
+      walletAddress,
+      solanaSignature,
+      marketLabel,
+      platform,
+      side,
+      price: toFiniteNumber(price, selectedMarket?.lastPrice ?? 0.5),
+      size: toFiniteNumber(size, 0),
+      source: "mock_order",
+      metadata: {
+        marketId: selectedMarket?.id || marketId || null,
+        tokenIds: selectedMarket?.clobTokenIds || [],
+        ...metadata,
+      },
+    });
+
+    await appendMockTrades([trade]);
+
+    res.json(trade);
+  } catch (err) {
+    console.error("Mock order error:", err.message);
+    res.status(500).json({ error: "Mock order failed", details: err.message });
+  }
+});
+
+// Mock Polymarket: list saved trades
+app.get("/api/mock/polymarket/trades", async (req, res) => {
+  try {
+    const wallet = typeof req.query.wallet === "string" ? req.query.wallet.trim() : "";
+    const limit = parseBoundedInt(req.query.limit, 50, 1, 500);
+    const trades = await readJsonFile(MOCK_POLY_TRADES_FILE, []);
+    const filtered = wallet
+      ? trades.filter((trade) => trade.walletAddress === wallet)
+      : trades;
+
+    res.json({
+      count: Math.min(filtered.length, limit),
+      trades: filtered.slice(-limit),
+    });
+  } catch (err) {
+    console.error("Mock trades error:", err.message);
+    res.status(500).json({ error: "Failed to load mock trades", details: err.message });
+  }
+});
+
+// Mock Polymarket: execute an arbitrage alert (two legs)
+app.post("/api/mock/polymarket/execute-arb", async (req, res) => {
+  try {
+    const { alert, walletAddress, solanaSignature, size, metadata } = req.body || {};
+
+    if (!alert || typeof alert !== "object") {
+      return res.status(400).json({ error: "alert payload is required" });
+    }
+
+    const platforms = Array.isArray(alert.platforms) ? alert.platforms : [];
+    const actions = Array.isArray(alert.actions) ? alert.actions : [];
+    const question = alert.question || alert.title || "Arb opportunity";
+    const baseSize = toFiniteNumber(size, 100);
+
+    const priceByPlatform = {
+      [platforms[0]]: toFiniteNumber(alert.priceA, 0.5),
+      [platforms[1]]: toFiniteNumber(alert.priceB, 0.5),
+    };
+
+    const trades = actions.length > 0
+      ? actions.map((action) =>
+        buildMockTrade({
+          walletAddress,
+          solanaSignature,
+          marketLabel: question,
+          platform: action.platform,
+          side: action.action,
+          price: priceByPlatform[action.platform] ?? 0.5,
+          size: baseSize,
+          source: "mock_arb",
+          metadata: { alertId: alert.id || null, ...metadata },
+        }))
+      : platforms.map((platform, index) =>
+        buildMockTrade({
+          walletAddress,
+          solanaSignature,
+          marketLabel: question,
+          platform,
+          side: index === 0 ? "BUY" : "SELL",
+          price: priceByPlatform[platform] ?? 0.5,
+          size: baseSize,
+          source: "mock_arb",
+          metadata: { alertId: alert.id || null, ...metadata },
+        }));
+
+    await appendMockTrades(trades);
+
+    res.json({
+      count: trades.length,
+      trades,
+    });
+  } catch (err) {
+    console.error("Mock arb execute error:", err.message);
+    res.status(500).json({ error: "Mock arb execution failed", details: err.message });
+  }
+});
+
+// Mock Polymarket: execute a basket rebalance
+app.post("/api/mock/polymarket/execute-basket", async (req, res) => {
+  try {
+    const { basket, walletAddress, solanaSignature, notional } = req.body || {};
+
+    if (!Array.isArray(basket) || basket.length === 0) {
+      return res.status(400).json({ error: "basket array is required" });
+    }
+
+    const rebalanceResponse = await checkBasketRebalance(basket);
+    const rebalancePayload = parseAgentPayload(rebalanceResponse?.content);
+
+    const positions =
+      rebalancePayload?.positions ||
+      rebalancePayload?.rebalances ||
+      rebalancePayload?.instructions ||
+      rebalancePayload?.rebalance_positions ||
+      rebalancePayload?.rebalanceInstructions ||
+      [];
+
+    if (!Array.isArray(positions) || positions.length === 0) {
+      return res.status(422).json({
+        error: "Rebalancer did not return positions",
+        details: rebalancePayload,
+      });
+    }
+
+    const baseNotional = toFiniteNumber(notional, 100);
+
+    const trades = positions
+      .map((position) => {
+        const adjustment = normalizeAdjustmentPct(
+          position?.adjustment_pct ??
+          position?.adjustmentPct ??
+          position?.adjustment ??
+          position?.size_pct ??
+          position?.sizePct ??
+          position?.delta ??
+          0
+        );
+
+        if (adjustment <= 0) {
+          return null;
+        }
+
+        const rawDirection = String(
+          position?.direction ||
+          position?.action ||
+          position?.side ||
+          ""
+        ).toUpperCase();
+
+        const side = rawDirection === "DECREASE" || rawDirection === "SELL"
+          ? "SELL"
+          : "BUY";
+
+        const marketLabel =
+          position?.market ||
+          position?.question ||
+          position?.name ||
+          "Basket position";
+
+        const basketEntry = basket.find((entry) => entry?.market === marketLabel);
+        const price = toFiniteNumber(basketEntry?.current_weight, 0.5);
+
+        return buildMockTrade({
+          walletAddress,
+          solanaSignature,
+          marketLabel,
+          platform: position?.platform || basketEntry?.platform || "Polymarket",
+          side,
+          price,
+          size: baseNotional * adjustment,
+          source: "mock_basket",
+          metadata: {
+            adjustment_pct: adjustment,
+            urgency: rebalancePayload?.urgency_score ?? null,
+          },
+        });
+      })
+      .filter(Boolean);
+
+    await appendMockTrades(trades);
+
+    res.json({
+      count: trades.length,
+      trades,
+      rebalance: rebalancePayload,
+    });
+  } catch (err) {
+    console.error("Mock basket execute error:", err.message);
+    res.status(500).json({ error: "Mock basket execution failed", details: err.message });
+  }
+});
+
+// Mock Polymarket: buy a basket by target weights
+app.post("/api/mock/polymarket/buy-basket", async (req, res) => {
+  try {
+    const { basket, walletAddress, solanaSignature, notional } = req.body || {};
+
+    if (!Array.isArray(basket) || basket.length === 0) {
+      return res.status(400).json({ error: "basket array is required" });
+    }
+
+    const baseNotional = toFiniteNumber(notional, 100);
+
+    const trades = basket
+      .map((entry) => {
+        const weight = normalizeWeightFraction(
+          entry?.target_weight ??
+          entry?.weight ??
+          entry?.allocation ??
+          0
+        );
+
+        if (weight <= 0) return null;
+
+        const marketLabel = entry?.market || entry?.question || entry?.name || "Basket position";
+        const price = toFiniteNumber(entry?.current_weight, 0.5);
+
+        return buildMockTrade({
+          walletAddress,
+          solanaSignature,
+          marketLabel,
+          platform: entry?.platform || "Polymarket",
+          side: "BUY",
+          price,
+          size: baseNotional * weight,
+          source: "mock_basket_buy",
+          metadata: {
+            target_weight: weight,
+          },
+        });
+      })
+      .filter(Boolean);
+
+    await appendMockTrades(trades);
+
+    res.json({
+      count: trades.length,
+      trades,
+    });
+  } catch (err) {
+    console.error("Mock basket buy error:", err.message);
+    res.status(500).json({ error: "Mock basket buy failed", details: err.message });
   }
 });
 

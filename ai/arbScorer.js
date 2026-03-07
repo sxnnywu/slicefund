@@ -8,8 +8,8 @@ const __dirname = path.dirname(__filename);
 const projectRoot = path.resolve(__dirname, "..");
 const envPath = path.join(projectRoot, ".env");
 
-const MODEL_NAME = "gemini-1.5-pro";
-const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.5-flash-lite", "gemini-2.0-flash"];
+const MODEL_NAME = "gemini-1.5-flash";
+const FALLBACK_MODELS = ["gemini-1.5-flash-latest"];
 const FUNCTION_NAME = "score_arb_opportunity";
 const BASE_PROMPT =
   "You are a prediction market arbitrage analyst. You have detected a price discrepancy on the same underlying question across two platforms. Analyze whether this is a genuine arbitrage opportunity or if the price difference has a legitimate explanation such as recent news, liquidity differences, or platform-specific factors.";

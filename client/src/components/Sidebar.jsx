@@ -7,6 +7,7 @@ const NAV = [
   { id: "polymarket", label: "Polymarket", icon: "🟣", badge: "LIVE" },
   { id: "baskets", label: "My Baskets", icon: "📈" },
   { id: "markets", label: "Markets", icon: "📊" },
+  { id: "trades", label: "Trades", icon: "🧾" },
 ];
 const TOOLS = [
   { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },

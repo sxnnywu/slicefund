@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } from '@solana/web3.js';
+import { Buffer } from 'buffer';
 
 // Solana network configuration
 const NETWORK = 'devnet';
@@ -81,6 +82,7 @@ export default function usePhantom() {
         }
       });
 
+      return publicKey;
     } catch (err) {
       console.error('Connection error:', err);
       setError(err.message || 'Failed to connect');
@@ -156,6 +158,28 @@ export default function usePhantom() {
     };
   }, [getProvider, wallet, updateBalance]);
 
+  // Sign an arbitrary message (mock trade receipts)
+  const signMessage = useCallback(async (message, overrideWallet = null) => {
+    const provider = getProvider();
+    const activeWallet = overrideWallet || wallet;
+    if (!provider || !activeWallet) {
+      throw new Error('Wallet not connected');
+    }
+
+    if (typeof provider.signMessage !== 'function') {
+      throw new Error('Phantom signMessage not supported');
+    }
+
+    const encoded = new TextEncoder().encode(String(message));
+    const signed = await provider.signMessage(encoded, 'utf8');
+    const signature = Buffer.from(signed.signature).toString('base64');
+
+    return {
+      signature,
+      publicKey: signed.publicKey?.toString?.() || activeWallet.toString(),
+    };
+  }, [getProvider, wallet]);
+
   // Try to reconnect on mount if previously connected
   useEffect(() => {
     const tryReconnect = async () => {
@@ -185,6 +209,7 @@ export default function usePhantom() {
     connect,
     disconnect,
     sendSol,
+    signMessage,
     refreshBalance: () => updateBalance(wallet),
     walletAddress: wallet?.toString() || null,
     network: NETWORK,

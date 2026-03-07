@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import usePhantom from "../hooks/usePhantom.js";
 
 function getDecisionStyles(decision) {
   if (decision === "CONFIRMED") {
@@ -52,6 +53,10 @@ export default function PanelArb() {
   const [arbs, setArbs] = useState([]);
   const [isScanning, setIsScanning] = useState(true);
   const [lastScanTime, setLastScanTime] = useState(null);
+  const [executingId, setExecutingId] = useState(null);
+  const [execStatus, setExecStatus] = useState(null);
+  const [execError, setExecError] = useState(null);
+  const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
 
   useEffect(() => {
     const runScans = async () => {
@@ -65,6 +70,58 @@ export default function PanelArb() {
 
     runScans();
   }, []);
+
+  const handleExecute = async (alert) => {
+    setExecutingId(alert.id);
+    setExecStatus(null);
+    setExecError(null);
+
+    try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      const payload = {
+        type: "arb_execute",
+        alertId: alert.id,
+        question: alert.question,
+        platforms: alert.platforms,
+        actions: alert.actions,
+        priceA: alert.priceA,
+        priceB: alert.priceB,
+        timestamp: new Date().toISOString(),
+      };
+
+      const signature = activeWallet
+        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
+        : null;
+
+      const response = await fetch("/api/mock/polymarket/execute-arb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alert,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
+          metadata: { payload },
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Execution failed");
+      }
+
+      const result = await response.json();
+      setExecStatus(`Executed ${result.count} mock legs`);
+    } catch (error) {
+      setExecError(error.message || "Execution failed");
+    } finally {
+      setExecutingId(null);
+    }
+  };
 
   const liveCount = arbs.filter((a) => a.decision === "CONFIRMED").length;
   const bestSpread = arbs.length > 0 ? Math.max(...arbs.map((a) => a.spread)) : 0;
@@ -101,6 +158,21 @@ export default function PanelArb() {
             Scan now
           </div>
         </div>
+        {phantomInstalled === false && (
+          <div style={{ padding: "12px 16px", border: "1px solid var(--border)", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "var(--text-dim)" }}>
+            Connect Phantom to sign mock trades.
+          </div>
+        )}
+        {execStatus && (
+          <div style={{ padding: "12px 16px", border: "1px solid rgba(0,196,140,0.3)", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "var(--green)" }}>
+            {execStatus}
+          </div>
+        )}
+        {execError && (
+          <div style={{ padding: "12px 16px", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 10, marginBottom: 16, fontSize: 12, color: "var(--red)" }}>
+            {execError}
+          </div>
+        )}
         {arbs.length === 0 && !isScanning && (
           <div style={{ padding: "24px", color: "var(--text-dim)", textAlign: "center", fontSize: 13 }}>
             No opportunities found. Try scanning again.
@@ -140,8 +212,13 @@ export default function PanelArb() {
                   Urgency: <b style={{ color: "var(--text)" }}>{a.urgency || "—"}</b>
                 </span>
               </div>
-              <button className="sf-btn-smooth" style={a.decision === "CONFIRMED" ? s.execBtn : s.analysisBtn}>
-                {getDecisionStyles(a.decision).actionLabel}
+              <button
+                className="sf-btn-smooth"
+                style={a.decision === "CONFIRMED" ? s.execBtn : s.analysisBtn}
+                onClick={() => (a.decision === "CONFIRMED" ? handleExecute(a) : null)}
+                disabled={executingId === a.id}
+              >
+                {executingId === a.id ? "Executing..." : getDecisionStyles(a.decision).actionLabel}
               </button>
             </div>
           </div>
