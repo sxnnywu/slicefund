@@ -19,6 +19,10 @@
   --text-dim: #9AA5C4;
   --shadow: 0 4px 24px rgba(26,92,255,0.08);
   --shadow-lg: 0 8px 48px rgba(26,92,255,0.12);
+  --motion-fast: 160ms;
+  --motion-base: 240ms;
+  --motion-slow: 320ms;
+  --motion-ease: cubic-bezier(0.22, 1, 0.36, 1);
 }
 
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
@@ -32,6 +36,33 @@ body {
 }
 
 #root { min-height: 100vh; }
+
+button {
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease,
+    color var(--motion-fast) ease;
+}
+
+button:not(:disabled):hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+button:not(:disabled):active {
+  transform: translateY(0);
+}
+
+button:focus-visible {
+  outline: 2px solid var(--blue-mid);
+  outline-offset: 2px;
+}
+
+button:disabled {
+  cursor: not-allowed;
+}
 
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(20px); }
@@ -56,4 +87,90 @@ body {
 @keyframes blink {
   0%, 100% { opacity: 1; }
   50% { opacity: 0.3; }
+}
+
+@keyframes panelIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+.sf-panel-transition {
+  animation: panelIn var(--motion-base) var(--motion-ease);
+  will-change: opacity, transform;
+}
+
+.sf-btn-smooth {
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
+}
+
+.sf-btn-smooth:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+.sf-btn-smooth:active {
+  transform: translateY(0);
+}
+
+.sf-card-smooth {
+  transition:
+    transform var(--motion-base) var(--motion-ease),
+    box-shadow var(--motion-base) var(--motion-ease),
+    border-color var(--motion-base) ease;
+}
+
+.sf-card-smooth:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--shadow-lg);
+  border-color: var(--border2);
+}
+
+.sf-sidebar-item-smooth {
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    background-color var(--motion-fast) ease,
+    color var(--motion-fast) ease,
+    border-color var(--motion-fast) ease;
+}
+
+.sf-sidebar-item-smooth:hover {
+  transform: translateX(2px);
+}
+
+.sf-user-chip-smooth {
+  transition:
+    transform var(--motion-fast) var(--motion-ease),
+    box-shadow var(--motion-fast) var(--motion-ease);
+}
+
+.sf-user-chip-smooth:hover {
+  transform: translateY(-1px);
+  box-shadow: var(--shadow);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .sf-panel-transition {
+    animation: none;
+  }
+
+  .sf-btn-smooth,
+  .sf-card-smooth,
+  .sf-sidebar-item-smooth,
+  .sf-user-chip-smooth,
+  button {
+    transition: none;
+  }
+
+  button:not(:disabled):hover,
+  button:not(:disabled):active,
+  .sf-btn-smooth:hover,
+  .sf-card-smooth:hover,
+  .sf-sidebar-item-smooth:hover,
+  .sf-user-chip-smooth:hover {
+    transform: none;
+  }
 }

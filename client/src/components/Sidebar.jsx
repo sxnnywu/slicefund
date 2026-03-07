@@ -1,4 +1,5 @@
 import React from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 
 const NAV = [
   { id: "home", label: "Dashboard", icon: "▦" },
@@ -14,6 +15,18 @@ const TOOLS = [
 ];
 
 export default function Sidebar({ activePanel, onNavigate }) {
+  const { user } = useAuth0();
+
+  const rawName =
+    user?.given_name ||
+    user?.name?.trim()?.split(/\s+/)?.[0] ||
+    user?.nickname ||
+    (user?.email ? user.email.split("@")[0] : null) ||
+    "User";
+  const displayName = rawName.charAt(0).toUpperCase() + rawName.slice(1);
+  const avatarInitial = displayName.charAt(0).toUpperCase();
+  const subLabel = user?.email || "Authenticated";
+
   return (
     <div style={styles.sidebar}>
       <div style={styles.logo}>
@@ -24,6 +37,7 @@ export default function Sidebar({ activePanel, onNavigate }) {
       {NAV.map((n) => (
         <div
           key={n.id}
+          className="sf-sidebar-item-smooth"
           style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
           onClick={() => onNavigate(n.id)}
         >
@@ -35,6 +49,7 @@ export default function Sidebar({ activePanel, onNavigate }) {
       {TOOLS.map((n) => (
         <div
           key={n.id}
+          className="sf-sidebar-item-smooth"
           style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
           onClick={() => onNavigate(n.id)}
         >
@@ -43,11 +58,11 @@ export default function Sidebar({ activePanel, onNavigate }) {
         </div>
       ))}
       <div style={styles.bottom}>
-        <div style={styles.user}>
-          <div style={styles.avatar}>J</div>
+        <div className="sf-user-chip-smooth" style={styles.user}>
+          <div style={styles.avatar}>{avatarInitial}</div>
           <div>
-            <div style={{ fontSize: 13, fontWeight: 600 }}>james.eth</div>
-            <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "'DM Mono', monospace" }}>PRO · SOLANA</div>
+            <div style={{ fontSize: 13, fontWeight: 600 }}>{displayName}</div>
+            <div style={{ fontSize: 10, color: "var(--text-dim)", fontFamily: "'DM Mono', monospace" }}>{subLabel}</div>
           </div>
         </div>
       </div>

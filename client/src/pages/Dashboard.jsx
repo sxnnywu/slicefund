@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import { useAuth0 } from "@auth0/auth0-react";
 import Sidebar from "../components/Sidebar.jsx";
 import ThesisCard from "../components/ThesisCard.jsx";
 import ActiveMarkets from "../components/ActiveMarkets.jsx";
@@ -14,11 +15,21 @@ import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
 
 export default function Dashboard() {
+  const { user } = useAuth0();
   const [panel, setPanel] = useState("home");
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
   const [searches, setSearches] = useState([]);
+
+  const rawFirstName =
+    user?.given_name ||
+    user?.name?.trim()?.split(/\s+/)?.[0] ||
+    user?.nickname ||
+    (user?.email ? user.email.split("@")[0] : null);
+  const firstName = rawFirstName
+    ? rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1)
+    : "there";
 
   const analyze = async (thesis) => {
     setLoading(true);
@@ -77,14 +88,14 @@ export default function Dashboard() {
           <>
             <div style={styles.topbar}>
               <div>
-                <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.3 }}>Good evening, James 👋</h2>
+                <h2 style={{ fontSize: 24, fontWeight: 700, letterSpacing: -0.3 }}>Hello, {firstName} 👋</h2>
                 <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
                   {results ? `${results.picks.length} picks found` : "3 arb opportunities detected · Markets are active"}
                 </p>
               </div>
               <div style={{ display: "flex", gap: 12 }}>
-                <button style={styles.topBtn}>🔔 Alerts <span style={styles.badge}>3</span></button>
-                <button style={styles.topBtnPrimary} onClick={() => setPanel("thesis")}>+ New Thesis</button>
+                <button className="sf-btn-smooth" style={styles.topBtn}>🔔 Alerts <span style={styles.badge}>3</span></button>
+                <button className="sf-btn-smooth" style={styles.topBtnPrimary} onClick={() => setPanel("thesis")}>+ New Thesis</button>
               </div>
             </div>
             <div style={styles.statRow}>
@@ -94,7 +105,7 @@ export default function Dashboard() {
                 { label: "Arb Opportunities", value: "3", delta: "↑ Live now", color: "var(--green)" },
                 { label: "Searches Made", value: String(searches.length || 24), delta: "All time", color: "var(--text-dim)" },
               ].map((s, i) => (
-                <div key={i} style={styles.statCard}>
+                <div key={i} className="sf-card-smooth" style={styles.statCard}>
                   <div style={styles.statLabel}>{s.label}</div>
                   <div style={styles.statValue}>{s.value}</div>
                   <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6, color: s.color }}>{s.delta}</div>
@@ -119,7 +130,9 @@ export default function Dashboard() {
   return (
     <div style={{ display: "flex", minHeight: "100vh", position: "relative", zIndex: 1 }}>
       <Sidebar activePanel={panel} onNavigate={setPanel} />
-      <div style={styles.main}>{renderPanel()}</div>
+      <div style={styles.main}>
+        <div key={panel} className="sf-panel-transition">{renderPanel()}</div>
+      </div>
     </div>
   );
 }
