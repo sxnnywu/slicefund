@@ -155,6 +155,34 @@ export async function saveIds(assistantId, threadId) {
   }
 }
 
+/**
+ * Validate a raw arbitrage alert using the ArbitrageScanner agent.
+ * @param {string} rawAlert
+ */
+export async function validateArbitrage(rawAlert) {
+  if (!rawAlert || typeof rawAlert !== "string") {
+    throw new Error("rawAlert must be a non-empty string");
+  }
+
+  let assistantId = process.env.ARB_SCANNER_ASSISTANT_ID;
+  let threadId = process.env.ARB_SCANNER_THREAD_ID;
+
+  if (!assistantId) {
+    assistantId = await createAssistant();
+    threadId = await createThread(assistantId);
+    await saveIds(assistantId, threadId);
+    process.env.ARB_SCANNER_ASSISTANT_ID = assistantId;
+    process.env.ARB_SCANNER_THREAD_ID = threadId;
+  }
+
+  if (!threadId) {
+    threadId = await createThread(assistantId);
+    process.env.ARB_SCANNER_THREAD_ID = threadId;
+  }
+
+  return sendMessage(threadId, rawAlert);
+}
+
 export async function main() {
   let assistantId = process.env.ARB_SCANNER_ASSISTANT_ID;
   let threadId = process.env.ARB_SCANNER_THREAD_ID;

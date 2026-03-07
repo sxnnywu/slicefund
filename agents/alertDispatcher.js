@@ -155,6 +155,34 @@ export async function saveIds(assistantId, threadId) {
   }
 }
 
+/**
+ * Format a trade analysis into a frontend alert object using AlertDispatcher agent.
+ * @param {string} tradeAnalysis
+ */
+export async function dispatchArbitrageAlert(tradeAnalysis) {
+  if (!tradeAnalysis || typeof tradeAnalysis !== "string") {
+    throw new Error("tradeAnalysis must be a non-empty string");
+  }
+
+  let assistantId = process.env.ALERT_DISPATCHER_ASSISTANT_ID;
+  let threadId = process.env.ALERT_DISPATCHER_THREAD_ID;
+
+  if (!assistantId) {
+    assistantId = await createAssistant();
+    threadId = await createThread(assistantId);
+    await saveIds(assistantId, threadId);
+    process.env.ALERT_DISPATCHER_ASSISTANT_ID = assistantId;
+    process.env.ALERT_DISPATCHER_THREAD_ID = threadId;
+  }
+
+  if (!threadId) {
+    threadId = await createThread(assistantId);
+    process.env.ALERT_DISPATCHER_THREAD_ID = threadId;
+  }
+
+  return sendMessage(threadId, tradeAnalysis);
+}
+
 export async function main() {
   let assistantId = process.env.ALERT_DISPATCHER_ASSISTANT_ID;
   let threadId = process.env.ALERT_DISPATCHER_THREAD_ID;
