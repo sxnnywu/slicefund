@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "dev:server": "node server/index.js",
+    "dev:client": "vite --config client/vite.config.js",
+    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
+    "build": "vite build --config client/vite.config.js"
   },
   "repository": {
     "type": "git",
@@ -14,13 +17,8 @@
   "author": "",
   "license": "ISC",
   "type": "module",
-  "scripts": {
-    "dev:server": "node server/index.js",
-    "dev:client": "vite --config client/vite.config.js",
-    "dev": "concurrently \"npm run dev:server\" \"npm run dev:client\"",
-    "build": "vite build --config client/vite.config.js"
-  },
   "dependencies": {
+    "@auth0/auth0-react": "^2.15.0",
     "@google/generative-ai": "^0.21.0",
     "axios": "^1.7.9",
     "cors": "^2.8.5",

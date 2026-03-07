@@ -8,6 +8,18 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 export default defineConfig({
   root: __dirname,
   plugins: [react()],
+  define: {
+    "process.env": {},
+    global: "globalThis",
+  },
+  resolve: {
+    alias: {
+      buffer: "buffer",
+    },
+  },
+  optimizeDeps: {
+    include: ["buffer", "@solana/web3.js"],
+  },
   server: {
     port: 5173,
     proxy: {

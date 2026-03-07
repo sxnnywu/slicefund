@@ -13,6 +13,7 @@ import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
+import WalletConnect from "../components/WalletConnect.jsx";
 
 export default function Dashboard() {
   const { user } = useAuth0();
@@ -93,9 +94,10 @@ export default function Dashboard() {
                   {results ? `${results.picks.length} picks found` : "3 arb opportunities detected · Markets are active"}
                 </p>
               </div>
-              <div style={{ display: "flex", gap: 12 }}>
+              <div style={{ display: "flex", gap: 12, alignItems: "center" }}>
                 <button className="sf-btn-smooth" style={styles.topBtn}>🔔 Alerts <span style={styles.badge}>3</span></button>
                 <button className="sf-btn-smooth" style={styles.topBtnPrimary} onClick={() => setPanel("thesis")}>+ New Thesis</button>
+                <WalletConnect />
               </div>
             </div>
             <div style={styles.statRow}>
