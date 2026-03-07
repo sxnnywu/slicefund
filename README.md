@@ -14,7 +14,7 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
 - `IndexRebalancer` — monitors ETF basket NAV drift and triggers rebalance when weights shift >5%
 - `AlertDispatcher` — formats confirmed arb alerts for the frontend feed
 
-**Gemini 1.5 Pro** — function calling for:
+**Gemini function calling** — (`gemini-2.5-flash` with fallback handling) for:
 - `thesisMapper` — thesis to market question mapping with confidence scoring
 - `arbScorer` — arb risk assessment with spread calculation and urgency scoring
 
@@ -23,9 +23,9 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
 - **Redis** — price feed pub/sub, arb alert queue
 - **Supabase** — user portfolios, thesis history, resolution events
 
-### Frontend (Planned)
-- **Next.js** — dashboard
-- **Auth0** — authentication
+### Frontend
+- **Vite + React** (`client/`) — thesis entry UI and results rendering
+- **Auth0** — SPA authentication gate (login/logout + protected app shell)
 - **Cloudinary** — media and generated cards
 - **Vultr** — cloud deployment
 
@@ -44,11 +44,15 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
   - Function calling with structured output
   - Model fallback handling
 
+- **Frontend Auth0 gate** (`client/`)
+  - `Auth0Provider` wired in `main.jsx`
+  - Route-level auth gate in `App.jsx` (loading, login, authenticated shell, logout)
+  - Vite-prefixed env variable support (`VITE_AUTH0_DOMAIN`, `VITE_AUTH0_CLIENT_ID`)
+
 ### 🚧 Not Yet Built
 - Redis price feed scanner
 - Solana/Anchor smart contracts
 - Supabase schema and integration
-- Frontend dashboard
 - Jupiter swap integration
 
 ## Setup
@@ -56,6 +60,7 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
 ### Prerequisites
 - Node.js 18+
 - API keys for Backboard and Gemini
+- Auth0 SPA application (for `client/` login flow)
 
 ### Installation
 
@@ -65,11 +70,40 @@ npm install
 
 ### Environment Variables
 
-Create a `.env` file:
+Create a root `.env` file:
 
 ```bash
 BACKBOARD_API_KEY=your_backboard_key
 GEMINI_API_KEY=your_gemini_key
+```
+
+Create `client/.env` for frontend auth:
+
+```bash
+VITE_AUTH0_DOMAIN=your-auth0-domain
+VITE_AUTH0_CLIENT_ID=your-auth0-client-id
+```
+
+In Auth0 Application settings for local development:
+
+- **Allowed Callback URLs:** `http://localhost:5173`
+- **Allowed Logout URLs:** `http://localhost:5173`
+- **Allowed Web Origins:** `http://localhost:5173`
+
+### Run Frontend (Vite)
+
+```bash
+cd client
+npm install
+npx vite
+```
+
+Then open `http://localhost:5173`.
+
+From the repo root, you can also run:
+
+```bash
+npm run dev:client
 ```
 
 ### Testing Individual Components
