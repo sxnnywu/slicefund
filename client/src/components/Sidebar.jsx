@@ -1,18 +1,18 @@
 import React from "react";
 
 const NAV = [
-  { label: "Dashboard", icon: "▦", active: true },
-  { label: "Thesis Search", icon: "⌕", badge: "NEW" },
-  { label: "My Baskets", icon: "📈" },
-  { label: "Markets", icon: "📊" },
+  { id: "home", label: "Dashboard", icon: "▦" },
+  { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
+  { id: "baskets", label: "My Baskets", icon: "📈" },
+  { id: "markets", label: "Markets", icon: "📊" },
 ];
 const TOOLS = [
-  { label: "Arb Scanner", icon: "⚡", badge: "3" },
-  { label: "Index Builder", icon: "⊞" },
-  { label: "Cards", icon: "⚑" },
+  { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },
+  { id: "index", label: "Index Builder", icon: "⊞" },
+  { id: "cards", label: "Cards", icon: "⚑" },
 ];
 
-export default function Sidebar() {
+export default function Sidebar({ activePanel, onNavigate }) {
   return (
     <div style={styles.sidebar}>
       <div style={styles.logo}>
@@ -21,14 +21,22 @@ export default function Sidebar() {
       </div>
       <div style={styles.sectionLabel}>Main</div>
       {NAV.map((n) => (
-        <div key={n.label} style={{ ...styles.item, ...(n.active ? styles.itemActive : {}) }}>
+        <div
+          key={n.id}
+          style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
+          onClick={() => onNavigate(n.id)}
+        >
           <span>{n.icon}</span> {n.label}
           {n.badge && <span style={styles.badge}>{n.badge}</span>}
         </div>
       ))}
       <div style={styles.sectionLabel}>Tools</div>
       {TOOLS.map((n) => (
-        <div key={n.label} style={styles.item}>
+        <div
+          key={n.id}
+          style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
+          onClick={() => onNavigate(n.id)}
+        >
           <span>{n.icon}</span> {n.label}
           {n.badge && <span style={styles.badge}>{n.badge}</span>}
         </div>
@@ -62,7 +70,7 @@ const styles = {
   item: {
     display: "flex", alignItems: "center", gap: 10, padding: "10px 24px", fontSize: 14,
     fontWeight: 500, color: "var(--text-mid)", cursor: "pointer", margin: "0 8px", borderRadius: 10,
-    borderLeft: "2px solid transparent",
+    borderLeft: "2px solid transparent", transition: "all 0.15s",
   },
   itemActive: {
     background: "var(--blue-light)", color: "var(--blue)", fontWeight: 600,
