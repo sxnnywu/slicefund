@@ -1,0 +1,232 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>SlideFund - Phantom Wallet</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+      min-height: 100vh;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      color: #fff;
+    }
+    .container {
+      background: rgba(255, 255, 255, 0.05);
+      backdrop-filter: blur(10px);
+      border-radius: 20px;
+      padding: 40px;
+      width: 100%;
+      max-width: 450px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+    }
+    h1 {
+      text-align: center;
+      margin-bottom: 30px;
+      font-size: 28px;
+      background: linear-gradient(90deg, #ab9ff2, #6e56cf);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+    }
+    .wallet-section {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .connect-btn {
+      background: linear-gradient(90deg, #ab9ff2, #6e56cf);
+      border: none;
+      padding: 15px 40px;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .connect-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(171, 159, 242, 0.3);
+    }
+    .connect-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .wallet-info {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 12px;
+      padding: 20px;
+      margin-top: 20px;
+    }
+    .wallet-address {
+      font-family: monospace;
+      font-size: 14px;
+      word-break: break-all;
+      color: #ab9ff2;
+    }
+    .balance {
+      font-size: 24px;
+      font-weight: 700;
+      margin-top: 10px;
+    }
+    .deposit-section {
+      display: none;
+    }
+    .deposit-section.active {
+      display: block;
+    }
+    .form-group {
+      margin-bottom: 20px;
+    }
+    label {
+      display: block;
+      margin-bottom: 8px;
+      font-size: 14px;
+      color: #a0a0a0;
+    }
+    input {
+      width: 100%;
+      padding: 15px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      background: rgba(0, 0, 0, 0.2);
+      color: #fff;
+      font-size: 16px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    input:focus {
+      border-color: #ab9ff2;
+    }
+    input::placeholder {
+      color: #666;
+    }
+    .deposit-btn {
+      width: 100%;
+      background: linear-gradient(90deg, #22c55e, #16a34a);
+      border: none;
+      padding: 15px;
+      border-radius: 12px;
+      color: #fff;
+      font-size: 16px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+    .deposit-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 30px rgba(34, 197, 94, 0.3);
+    }
+    .deposit-btn:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+    .status {
+      margin-top: 20px;
+      padding: 15px;
+      border-radius: 12px;
+      text-align: center;
+      display: none;
+    }
+    .status.success {
+      display: block;
+      background: rgba(34, 197, 94, 0.2);
+      border: 1px solid #22c55e;
+    }
+    .status.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #ef4444;
+    }
+    .tx-link {
+      color: #ab9ff2;
+      text-decoration: none;
+      word-break: break-all;
+    }
+    .tx-link:hover {
+      text-decoration: underline;
+    }
+    .history-section {
+      margin-top: 30px;
+      display: none;
+    }
+    .history-section.active {
+      display: block;
+    }
+    .history-title {
+      font-size: 18px;
+      margin-bottom: 15px;
+      color: #a0a0a0;
+    }
+    .history-item {
+      background: rgba(0, 0, 0, 0.2);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 10px;
+      font-size: 13px;
+    }
+    .history-item .amount {
+      color: #22c55e;
+      font-weight: 600;
+    }
+    .no-phantom {
+      text-align: center;
+      padding: 20px;
+    }
+    .no-phantom a {
+      color: #ab9ff2;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>SlideFund</h1>
+
+    <div class="wallet-section">
+      <div id="no-phantom" class="no-phantom" style="display: none;">
+        <p>Phantom wallet not detected!</p>
+        <p><a href="https://phantom.app/" target="_blank">Install Phantom Wallet</a></p>
+      </div>
+
+      <button id="connect-btn" class="connect-btn">Connect Phantom</button>
+
+      <div id="wallet-info" class="wallet-info" style="display: none;">
+        <p>Connected:</p>
+        <p id="wallet-address" class="wallet-address"></p>
+        <p id="balance" class="balance">0 SOL</p>
+      </div>
+    </div>
+
+    <div id="deposit-section" class="deposit-section">
+      <div class="form-group">
+        <label for="recipient">Recipient Address</label>
+        <input type="text" id="recipient" placeholder="Enter Solana address">
+      </div>
+
+      <div class="form-group">
+        <label for="amount">Amount (SOL)</label>
+        <input type="number" id="amount" placeholder="0.01" step="0.001" min="0">
+      </div>
+
+      <button id="deposit-btn" class="deposit-btn">Send SOL</button>
+
+      <div id="status" class="status"></div>
+    </div>
+
+    <div id="history-section" class="history-section">
+      <h3 class="history-title">Recent Transactions</h3>
+      <div id="history-list"></div>
+    </div>
+  </div>
+
+  <script src="https://unpkg.com/@solana/web3.js@latest/lib/index.iife.min.js"></script>
+  <script type="module" src="app.js"></script>
+</body>
+</html>
