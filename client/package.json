@@ -2,5 +2,8 @@
   "name": "slidefund-client",
   "private": true,
   "version": "1.0.0",
-  "type": "module"
+  "type": "module",
+  "dependencies": {
+    "@auth0/auth0-react": "^2.15.0"
+  }
 }
