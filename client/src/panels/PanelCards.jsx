@@ -1,18 +1,20 @@
 import React from "react";
 
-const CARDS = [
-  { thesis: "AI regulation will tighten significantly in 2025", markets: 5, avg: "0.64", vol: "$420K", time: "2h ago" },
-  { thesis: "Trump tariff markets are bullish heading into 2025", markets: 4, avg: "0.71", vol: "$3.1M", time: "5h ago" },
-  { thesis: "Federal Reserve will cut rates before Q3 2025", markets: 4, avg: "0.47", vol: "$6.2M", time: "Yesterday" },
-];
-
-export default function PanelCards() {
+export default function PanelCards({ searches = [] }) {
+  const cards = searches.slice(0, 3).map(s => ({
+    thesis: s.thesis,
+    markets: s.picks,
+    avg: s.avgOdds,
+    vol: `$${(s.volume / 1000).toFixed(0)}K`,
+    time: s.time,
+  }));
   return (
     <>
       <div style={{ marginBottom: 36 }}><h2 style={{ fontSize: 24, fontWeight: 700 }}>Generated Cards</h2><p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>Shareable Cloudinary OG cards for your theses</p></div>
       <div style={s.card}>
         <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Recent Cards</div><div style={s.action}>Generate new</div></div>
-        {CARDS.map((c, i) => (
+        {cards.length === 0 && <div style={{ fontSize: 13, color: "var(--text-dim)", textAlign: "center", padding: 40 }}>No cards generated yet. Analyze a thesis to create shareable cards.</div>}
+        {cards.map((c, i) => (
           <div key={i} style={s.row}>
             <div style={s.preview}>
               <div style={s.previewBar} />

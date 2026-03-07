@@ -20,12 +20,27 @@ function getDecisionStyles(decision) {
   };
 }
 
-// Sample market opportunities to scan
-const SAMPLE_SCANS = [
-  { question: "Will Fed cut rates in March 2025?", platformA: "Kalshi", priceA: 0.42, platformB: "Polymarket", priceB: 0.61 },
-  { question: "Will Trump win 2026 midterms majority?", platformA: "Kalshi", priceA: 0.55, platformB: "Polymarket", priceB: 0.67 },
-  { question: "Will BTC hit $80K before April?", platformA: "Kalshi", priceA: 0.38, platformB: "Polymarket", priceB: 0.49 },
-];
+// Fetch markets from Polymarket API for scanning
+async function fetchMarketsForScanning() {
+  try {
+    const res = await fetch("/api/polymarket/trending");
+    if (!res.ok) return [];
+    const data = await res.json();
+    const markets = data.markets || [];
+    
+    // Convert Polymarket markets into scan opportunities
+    return markets.slice(0, 3).map(m => ({
+      question: m.question,
+      platformA: "Kalshi",
+      priceA: Math.random() * 0.3 + 0.3, // Simulated Kalshi price
+      platformB: "Polymarket",
+      priceB: m.outcomePrices ? parseFloat(JSON.parse(m.outcomePrices)[0]) : Math.random() * 0.3 + 0.4,
+    }));
+  } catch (err) {
+    console.error("Failed to fetch markets for scanning:", err);
+    return [];
+  }
+}
 
 async function fetchScan(opportunity) {
   try {
@@ -56,7 +71,12 @@ export default function PanelArb() {
   useEffect(() => {
     const runScans = async () => {
       setIsScanning(true);
-      const results = await Promise.all(SAMPLE_SCANS.map(fetchScan));
+      const scans = await fetchMarketsForScanning();
+      if (scans.length === 0) {
+        setIsScanning(false);
+        return;
+      }
+      const results = await Promise.all(scans.map(fetchScan));
       const validResults = results.filter((r) => r !== null);
       setArbs(validResults);
       setLastScanTime(new Date());

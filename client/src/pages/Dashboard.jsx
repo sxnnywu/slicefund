@@ -125,7 +125,7 @@ export default function Dashboard() {
       case "index":
         return <PanelIndex />;
       case "cards":
-        return <PanelCards />;
+        return <PanelCards searches={searches} />;
       case "profile":
         return <PanelProfile />;
       default:

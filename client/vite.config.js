@@ -10,14 +10,13 @@ export default defineConfig({
   plugins: [react()],
   resolve: {
     dedupe: ["react", "react-dom"],
-  define: {
-    "process.env": {},
-    global: "globalThis",
-  },
-  resolve: {
     alias: {
       buffer: "buffer",
     },
+  },
+  define: {
+    "process.env": {},
+    global: "globalThis",
   },
   optimizeDeps: {
     include: ["buffer", "@solana/web3.js"],

@@ -79,7 +79,7 @@ app.use((req, res, next) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 // --- Helper: call Gemini with retry ---
-async function geminiCall(prompt, retries = 3) {
+async function geminiCall(prompt, retries = 2) {
   const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
   for (let i = 0; i < retries; i++) {
     try {
@@ -87,7 +87,7 @@ async function geminiCall(prompt, retries = 3) {
       return result.response.text().trim();
     } catch (err) {
       if (err.message?.includes("429") && i < retries - 1) {
-        const wait = (i + 1) * 15000; // 15s, 30s, 45s
+        const wait = (i + 1) * 3000; // 3s, 6s
         console.log(`    Rate limited, waiting ${wait / 1000}s...`);
         await new Promise((r) => setTimeout(r, wait));
       } else {
