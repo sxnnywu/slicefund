@@ -94,7 +94,7 @@ export default function Dashboard() {
                 </p>
               </div>
               <div style={{ display: "flex", gap: 12 }}>
-                <button className="sf-btn-smooth" style={styles.topBtn}>🔔 Alerts <span style={styles.badge}>3</span></button>
+                <button className="sf-btn-smooth" style={styles.topBtn} onClick={() => setPanel("arb")}>🔔 Alerts <span style={styles.badge}>3</span></button>
                 <button className="sf-btn-smooth" style={styles.topBtnPrimary} onClick={() => setPanel("thesis")}>+ New Thesis</button>
               </div>
             </div>
