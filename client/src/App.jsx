@@ -2,6 +2,7 @@ import React, { useState } from "react";
 import ThesisInput from "./components/ThesisInput.jsx";
 import ResultsPanel from "./components/ResultsPanel.jsx";
 import AgentStatus from "./components/AgentStatus.jsx";
+import WalletConnect from "./components/WalletConnect.jsx";
 
 export default function App() {
   const [results, setResults] = useState(null);
@@ -49,8 +50,11 @@ export default function App() {
   return (
     <div style={styles.container}>
       <header style={styles.header}>
-        <div style={styles.logo}>
-          <span style={styles.logoIcon}>◧</span> Backboard
+        <div style={styles.headerTop}>
+          <div style={styles.logo}>
+            <span style={styles.logoIcon}>◧</span> Backboard
+          </div>
+          <WalletConnect />
         </div>
         <p style={styles.tagline}>
           Type your market thesis. Get ranked Polymarket picks instantly.
@@ -88,8 +92,14 @@ const styles = {
     flexDirection: "column",
   },
   header: {
-    textAlign: "center",
     marginBottom: 48,
+  },
+  headerTop: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    gap: 24,
+    marginBottom: 16,
   },
   logo: {
     fontSize: 32,
@@ -106,6 +116,7 @@ const styles = {
     fontSize: 16,
     maxWidth: 500,
     margin: "0 auto",
+    textAlign: "center",
   },
   main: {
     flex: 1,
