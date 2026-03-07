@@ -109,6 +109,129 @@ app.use((req, res, next) => {
 });
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
+const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
+
+function parseKalshiPrice(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value <= 1 ? value : value / 100;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed <= 1 ? parsed : parsed / 100;
+    }
+  }
+
+  return null;
+}
+
+function parseKalshiMetric(value) {
+  if (typeof value === "number" && Number.isFinite(value)) {
+    return value;
+  }
+
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number.parseFloat(value);
+    if (Number.isFinite(parsed)) {
+      return parsed;
+    }
+  }
+
+  return null;
+}
+
+function normalizeKalshiMarket(market) {
+  const status = String(market?.status || "").toLowerCase();
+  if (status && !["open", "active"].includes(status)) {
+    return null;
+  }
+
+  const explicitYesPrice =
+    parseKalshiPrice(market?.yes_price_dollars) ??
+    parseKalshiPrice(market?.yes_price);
+  const yesBid =
+    parseKalshiPrice(market?.yes_bid_dollars) ??
+    parseKalshiPrice(market?.yes_bid);
+  const yesAsk =
+    parseKalshiPrice(market?.yes_ask_dollars) ??
+    parseKalshiPrice(market?.yes_ask);
+  const lastTradePrice =
+    parseKalshiPrice(market?.last_price_dollars) ??
+    parseKalshiPrice(market?.last_price);
+  const midpointPrice =
+    yesBid != null && yesAsk != null ? (yesBid + yesAsk) / 2 : yesBid ?? yesAsk ?? null;
+  const yesPrice =
+    explicitYesPrice && explicitYesPrice > 0
+      ? explicitYesPrice
+      : lastTradePrice && lastTradePrice > 0
+        ? lastTradePrice
+        : midpointPrice ?? 0;
+
+  const noPrice =
+    parseKalshiPrice(market?.no_price_dollars) ??
+    parseKalshiPrice(market?.no_price) ??
+    parseKalshiPrice(market?.no_ask_dollars) ??
+    parseKalshiPrice(market?.no_bid_dollars) ??
+    parseKalshiPrice(market?.no_ask) ??
+    parseKalshiPrice(market?.no_bid) ??
+    Math.max(0, 1 - yesPrice);
+
+  const volume =
+    parseKalshiMetric(market?.volume) ??
+    parseKalshiMetric(market?.volume_dollars) ??
+    parseKalshiMetric(market?.volume_24h_fp) ??
+    parseKalshiMetric(market?.volume_fp) ??
+    parseKalshiMetric(market?.volume_24h) ??
+    0;
+
+  const liquidity =
+    parseKalshiMetric(market?.liquidity_dollars) ??
+    parseKalshiMetric(market?.liquidity) ??
+    parseKalshiMetric(market?.open_interest_fp) ??
+    parseKalshiMetric(market?.open_interest) ??
+    0;
+
+  const question = String(market?.title || market?.subtitle || market?.ticker || "").trim();
+  if (!question) {
+    return null;
+  }
+
+  return {
+    id: market?.ticker || question,
+    question,
+    subtitle: market?.subtitle || null,
+    ticker: market?.ticker || null,
+    eventTicker: market?.event_ticker || null,
+    outcomePrices: JSON.stringify([yesPrice]),
+    yes_price: yesPrice,
+    no_price: noPrice,
+    volume,
+    liquidity,
+    openInterest: parseKalshiMetric(market?.open_interest_fp) ?? parseKalshiMetric(market?.open_interest) ?? 0,
+    endDate: market?.close_time || market?.expiration_time || null,
+    closeDate: market?.close_time || market?.expiration_time || null,
+    rulesPrimary: market?.rules_primary || null,
+    rulesSecondary: market?.rules_secondary || null,
+    slug: market?.ticker || null,
+    platform: "Kalshi",
+  };
+}
+
+async function fetchKalshiMarkets(params = {}) {
+  const response = await axios.get(`${KALSHI_MARKET_DATA_BASE_URL}/markets`, {
+    params: {
+      limit: 200,
+      status: "open",
+      mve_filter: "exclude",
+      ...params,
+    },
+    timeout: 10000,
+  });
+
+  const rawMarkets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+  return rawMarkets.map(normalizeKalshiMarket).filter(Boolean);
+}
 
 // --- Helper: call Gemini with retry ---
 async function geminiCall(prompt, retries = 3) {
@@ -181,45 +304,25 @@ async function searchPolymarket(keywords) {
 // --- Agent 2b: Search Kalshi for relevant markets ---
 async function searchKalshi(keywords) {
   const allMarkets = [];
+  let markets = [];
+
+  try {
+    markets = await fetchKalshiMarkets({ limit: 200 });
+  } catch (err) {
+    console.error("Kalshi market fetch failed:", err.message);
+    return [];
+  }
 
   for (const keyword of keywords) {
     try {
-      const response = await axios.get(
-        "https://trading-api.kalshi.com/trade-api/v2/events",
-        {
-          params: {
-            limit: 10,
-            status: "open",
-            with_nested_markets: true,
-          },
-          timeout: 8000,
-        }
-      );
-      
-      const events = response.data?.events || [];
       const keywordLower = keyword.toLowerCase();
-      
-      for (const event of events) {
-        const titleMatch = event.title?.toLowerCase().includes(keywordLower);
-        
-        if (event.markets && Array.isArray(event.markets) && titleMatch) {
-          for (const market of event.markets) {
-            if (market.status === "open") {
-              allMarkets.push({
-                id: market.ticker,
-                question: market.title || event.title,
-                outcomePrices: JSON.stringify([market.yes_bid || market.last_price || 0]),
-                volume: market.volume || 0,
-                liquidity: market.open_interest || 0,
-                endDate: market.close_time || event.close_date,
-                slug: market.ticker,
-                platform: 'Kalshi',
-                ticker: market.ticker,
-              });
-            }
-          }
-        }
-      }
+      const matchedMarkets = markets.filter((market) =>
+        [market.question, market.subtitle, market.eventTicker, market.ticker]
+          .filter(Boolean)
+          .some((value) => String(value).toLowerCase().includes(keywordLower))
+      );
+
+      allMarkets.push(...matchedMarkets);
     } catch (err) {
       console.error(`Kalshi search failed for "${keyword}":`, err.message);
     }
@@ -862,45 +965,18 @@ app.get("/api/polymarket/search", async (req, res) => {
 // Kalshi markets endpoints
 app.get("/api/kalshi/trending", async (req, res) => {
   try {
-    const response = await axios.get("https://trading-api.kalshi.com/trade-api/v2/events", {
-      params: {
-        limit: 20,
-        status: "open",
-        with_nested_markets: true,
-      },
-      timeout: 10000,
+    const markets = await fetchKalshiMarkets({ limit: 1000 });
+
+    // Prefer markets with real trading activity, then fall back to quoted books.
+    markets.sort((a, b) => {
+      const activityA = (a.volume || 0) * 1000 + (a.openInterest || 0);
+      const activityB = (b.volume || 0) * 1000 + (b.openInterest || 0);
+      return activityB - activityA;
     });
-    
-    const events = response.data?.events || [];
-    const markets = [];
-    
-    // Flatten events into markets
-    for (const event of events) {
-      if (event.markets && Array.isArray(event.markets)) {
-        for (const market of event.markets) {
-          if (market.status === "open") {
-            markets.push({
-              id: market.ticker,
-              question: market.title || event.title,
-              eventTitle: event.title,
-              ticker: market.ticker,
-              yes_price: market.yes_bid || market.last_price || 0,
-              no_price: market.no_bid || (1 - (market.last_price || 0)),
-              volume: market.volume || 0,
-              openInterest: market.open_interest || 0,
-              closeDate: market.close_time || event.close_date,
-              category: event.category,
-              seriesTitle: event.series_ticker,
-            });
-          }
-        }
-      }
-    }
-    
-    // Sort by volume and limit to 20
-    markets.sort((a, b) => (b.volume || 0) - (a.volume || 0));
-    const topMarkets = markets.slice(0, 20);
-    
+
+    const activeMarkets = markets.filter((market) => (market.volume || 0) > 0 || (market.openInterest || 0) > 0);
+    const topMarkets = (activeMarkets.length > 0 ? activeMarkets : markets).slice(0, 20);
+
     res.json({ markets: topMarkets, count: topMarkets.length });
   } catch (err) {
     console.error("Kalshi fetch error:", err.message);
@@ -912,46 +988,16 @@ app.get("/api/kalshi/search", async (req, res) => {
   try {
     const { q } = req.query;
     if (!q) return res.status(400).json({ error: "Query param 'q' required" });
-    
-    const response = await axios.get("https://trading-api.kalshi.com/trade-api/v2/events", {
-      params: {
-        limit: 15,
-        status: "open",
-        with_nested_markets: true,
-      },
-      timeout: 8000,
-    });
-    
-    const events = response.data?.events || [];
-    const markets = [];
+
     const queryLower = q.toLowerCase();
-    
-    // Filter and flatten events into markets
-    for (const event of events) {
-      const titleMatch = event.title?.toLowerCase().includes(queryLower);
-      
-      if (event.markets && Array.isArray(event.markets)) {
-        for (const market of event.markets) {
-          const marketMatch = market.title?.toLowerCase().includes(queryLower);
-          if ((titleMatch || marketMatch) && market.status === "open") {
-            markets.push({
-              id: market.ticker,
-              question: market.title || event.title,
-              eventTitle: event.title,
-              ticker: market.ticker,
-              yes_price: market.yes_bid || market.last_price || 0,
-              no_price: market.no_bid || (1 - (market.last_price || 0)),
-              volume: market.volume || 0,
-              openInterest: market.open_interest || 0,
-              closeDate: market.close_time || event.close_date,
-              category: event.category,
-            });
-          }
-        }
-      }
-    }
-    
-    res.json({ markets: markets.slice(0, 15), count: markets.length, query: q });
+    const markets = await fetchKalshiMarkets({ limit: 200 });
+    const matches = markets.filter((market) =>
+      [market.question, market.subtitle, market.eventTicker, market.ticker]
+        .filter(Boolean)
+        .some((value) => String(value).toLowerCase().includes(queryLower))
+    );
+
+    res.json({ markets: matches.slice(0, 15), count: matches.length, query: q });
   } catch (err) {
     console.error("Kalshi search error:", err.message);
     res.status(500).json({ error: "Search failed", details: err.message });

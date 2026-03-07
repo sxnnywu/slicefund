@@ -13,6 +13,26 @@ function parsePrice(outcomePrices) {
   return "—";
 }
 
+function formatVolume(value, platform) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) {
+    return "—";
+  }
+
+  if (platform === "Kalshi") {
+    if (numeric >= 1000) {
+      return `${(numeric / 1000).toFixed(1)}K`;
+    }
+    return numeric.toFixed(numeric >= 100 ? 0 : 1).replace(/\.0$/, "");
+  }
+
+  if (numeric >= 1000) {
+    return `$${(numeric / 1000).toFixed(0)}K`;
+  }
+
+  return `$${numeric.toFixed(0)}`;
+}
+
 function getIcon(question) {
   const q = question.toLowerCase();
   if (q.includes("trump") || q.includes("tariff")) return "🇺🇸";
@@ -28,7 +48,19 @@ export default function PanelMarkets() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [platform, setPlatform] = useState("all"); // "all", "polymarket", "kalshi", "manifold"
+  const [platform, setPlatform] = useState("all"); // "all", "polymarket", "kalshi"
+
+  const fetchPlatformMarkets = async (url, platformLabel) => {
+    const response = await fetch(url);
+    const data = await response.json();
+
+    if (!response.ok) {
+      throw new Error(data?.details || data?.error || `Failed to fetch ${platformLabel} markets`);
+    }
+
+    const markets = Array.isArray(data?.markets) ? data.markets : [];
+    return markets.map((market) => ({ ...market, platform: platformLabel }));
+  };
 
   const fetchMarkets = async () => {
     setLoading(true);
@@ -36,13 +68,10 @@ export default function PanelMarkets() {
     try {
       const endpoints = [];
       if (platform === "all" || platform === "polymarket") {
-        endpoints.push(fetch("/api/polymarket/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Polymarket' }))));
+        endpoints.push(fetchPlatformMarkets("/api/polymarket/trending", "Polymarket"));
       }
       if (platform === "all" || platform === "kalshi") {
-        endpoints.push(fetch("/api/kalshi/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Kalshi' }))));
-      }
-      if (platform === "all" || platform === "manifold") {
-        endpoints.push(fetch("/api/manifold/trending").then(r => r.json()).then(d => d.markets.map(m => ({ ...m, platform: 'Manifold' }))));
+        endpoints.push(fetchPlatformMarkets("/api/kalshi/trending", "Kalshi"));
       }
       
       const results = await Promise.all(endpoints);
@@ -99,15 +128,16 @@ export default function PanelMarkets() {
         {error && <div style={{ fontSize: 12, color: "var(--red)", textAlign: "center", padding: 20 }}>{error}</div>}
         {!loading && !error && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
         {!loading && !error && markets.map((m, i) => {
-          const odds = parsePrice(m.outcomePrices || m.yes_price || m.probability);
-          const vol = m.volume ? `$${(Number(m.volume) / 1000).toFixed(0)}K` : "—";
+          const odds = parsePrice(m.outcomePrices || m.yes_price);
+          const vol = formatVolume(m.volume, m.platform);
           const end = (m.endDate || m.closeDate) ? new Date(m.endDate || m.closeDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }) : "—";
+          const metaVolumeLabel = m.platform === "Kalshi" ? `${vol} VOL` : `${vol} VOL`;
           return (
             <div key={i} style={s.row}>
               <div style={s.icon}>{getIcon(m.question)}</div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div style={s.q}>{m.question}</div>
-                <div style={s.meta}>{m.platform?.toUpperCase() || 'POLYMARKET'} · EXPIRES {end} · {vol} VOL</div>
+                <div style={s.meta}>{m.platform?.toUpperCase() || 'POLYMARKET'} · EXPIRES {end} · {metaVolumeLabel}</div>
               </div>
               <div style={{ textAlign: "right", flexShrink: 0 }}>
                 <div style={s.odds}>{odds}¢</div>
