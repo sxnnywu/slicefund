@@ -11,7 +11,6 @@ import PanelBaskets from "../panels/PanelBaskets.jsx";
 import PanelMarkets from "../panels/PanelMarkets.jsx";
 import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
-import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
 import PanelKalshi from "../panels/PanelKalshi.jsx";
 import PanelManifold from "../panels/PanelManifold.jsx";
@@ -425,8 +424,6 @@ export default function Dashboard() {
         return <PanelArb progress={arbProgress} onStartProgress={startArbProgress} onStopProgress={stopArbProgress} />;
       case "index":
         return <PanelIndex />;
-      case "cards":
-        return <PanelCards searches={searches} />;
       case "profile":
         return <PanelProfile />;
       case "trades":

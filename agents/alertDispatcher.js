@@ -26,6 +26,7 @@ if (!apiKey) {
 
 const http = axios.create({
   baseURL: BASE_URL,
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
@@ -175,12 +176,10 @@ export async function dispatchArbitrageAlert(tradeAnalysis) {
     process.env.ALERT_DISPATCHER_THREAD_ID = threadId;
   }
 
-  if (!threadId) {
-    threadId = await createThread(assistantId);
-    process.env.ALERT_DISPATCHER_THREAD_ID = threadId;
-  }
-
-  return sendMessage(threadId, tradeAnalysis);
+  // Use a fresh thread per dispatch call to avoid queue contention when
+  // multiple arb scans run concurrently.
+  const executionThreadId = await createThread(assistantId);
+  return sendMessage(executionThreadId, tradeAnalysis);
 }
 
 export async function main() {

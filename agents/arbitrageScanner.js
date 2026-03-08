@@ -26,6 +26,7 @@ if (!apiKey) {
 
 const http = axios.create({
   baseURL: BASE_URL,
+  timeout: 15000,
   headers: {
     "Content-Type": "application/json",
     "X-API-Key": apiKey,
@@ -175,12 +176,10 @@ export async function validateArbitrage(rawAlert) {
     process.env.ARB_SCANNER_THREAD_ID = threadId;
   }
 
-  if (!threadId) {
-    threadId = await createThread(assistantId);
-    process.env.ARB_SCANNER_THREAD_ID = threadId;
-  }
-
-  return sendMessage(threadId, rawAlert);
+  // Use a fresh thread per validation call to avoid queue contention when
+  // multiple arb scans run concurrently.
+  const executionThreadId = await createThread(assistantId);
+  return sendMessage(executionThreadId, rawAlert);
 }
 
 export async function main() {

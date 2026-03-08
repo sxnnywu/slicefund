@@ -10,7 +10,6 @@ const NAV = [
 const TOOLS = [
   { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },
   { id: "index", label: "Index Builder", icon: "⊞" },
-  { id: "cards", label: "Cards", icon: "⚑" },
 ];
 
 export default function Sidebar({ activePanel, onNavigate }) {
