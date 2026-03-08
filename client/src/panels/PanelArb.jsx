@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import usePhantom from "../hooks/usePhantom.js";
 
 function getDecisionStyles(decision) {
@@ -107,12 +107,16 @@ function normalizeMarketsByPlatform(payload, platform) {
     .filter(Boolean);
 }
 
-async function fetchScan(opportunity) {
+async function fetchScan(opportunity, timeoutMs = 12000) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+
   try {
     const response = await fetch("/api/scan", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(opportunity),
+      signal: controller.signal,
     });
 
     if (!response.ok) {
@@ -122,10 +126,12 @@ async function fetchScan(opportunity) {
     return response.json();
   } catch {
     return null;
+  } finally {
+    clearTimeout(timeout);
   }
 }
 
-function buildLiveOpportunities(markets, maxPairs = 8) {
+function buildLiveOpportunities(markets, maxPairs = 4) {
   const opportunities = [];
 
   for (let left = 0; left < markets.length; left += 1) {
@@ -199,8 +205,12 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
   const [execStatus, setExecStatus] = useState(null);
   const [execError, setExecError] = useState(null);
   const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
+  const scanInFlightRef = useRef(false);
 
   const runScans = useCallback(async () => {
+    if (scanInFlightRef.current) return;
+
+    scanInFlightRef.current = true;
     setIsScanning(true);
     setError(null);
     if (onStartProgress) onStartProgress();
@@ -214,7 +224,7 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
         return;
       }
 
-      const scanResults = await Promise.all(
+      const scanSettled = await Promise.allSettled(
         candidates.map(async (candidate) => {
           const scanned = await fetchScan(candidate);
           if (!scanned) return null;
@@ -230,7 +240,12 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
         })
       );
 
-      setArbs(scanResults.filter(Boolean));
+      const scanResults = scanSettled
+        .filter((result) => result.status === "fulfilled")
+        .map((result) => result.value)
+        .filter(Boolean);
+
+      setArbs(scanResults);
       setLastScanTime(new Date());
     } catch (scanError) {
       setError(scanError.message || "Scan failed");
@@ -238,6 +253,7 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
     } finally {
       setIsScanning(false);
       if (onStopProgress) onStopProgress();
+      scanInFlightRef.current = false;
     }
   }, [onStartProgress, onStopProgress]);
 

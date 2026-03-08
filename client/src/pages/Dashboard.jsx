@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Sidebar from "../components/Sidebar.jsx";
 import ThesisCard from "../components/ThesisCard.jsx";
@@ -259,7 +259,7 @@ export default function Dashboard() {
     ? rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1)
     : "there";
 
-  const stopAnalyzeProgress = (reset = true) => {
+  const stopAnalyzeProgress = useCallback((reset = true) => {
     if (analyzeProgressTimerRef.current) {
       clearInterval(analyzeProgressTimerRef.current);
       analyzeProgressTimerRef.current = null;
@@ -268,9 +268,9 @@ export default function Dashboard() {
     if (reset) {
       setAnalyzeStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startAnalyzeProgress = () => {
+  const startAnalyzeProgress = useCallback(() => {
     stopAnalyzeProgress(false);
 
     let nextStep = 0;
@@ -286,9 +286,9 @@ export default function Dashboard() {
 
       setAnalyzeStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopAnalyzeProgress]);
 
-  const stopArbProgress = (reset = true) => {
+  const stopArbProgress = useCallback((reset = true) => {
     if (arbProgressTimerRef.current) {
       clearInterval(arbProgressTimerRef.current);
       arbProgressTimerRef.current = null;
@@ -297,9 +297,9 @@ export default function Dashboard() {
     if (reset) {
       setArbStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startArbProgress = () => {
+  const startArbProgress = useCallback(() => {
     stopArbProgress(false);
 
     let nextStep = 0;
@@ -315,9 +315,9 @@ export default function Dashboard() {
 
       setArbStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopArbProgress]);
 
-  const stopRebalanceProgress = (reset = true) => {
+  const stopRebalanceProgress = useCallback((reset = true) => {
     if (rebalanceProgressTimerRef.current) {
       clearInterval(rebalanceProgressTimerRef.current);
       rebalanceProgressTimerRef.current = null;
@@ -326,9 +326,9 @@ export default function Dashboard() {
     if (reset) {
       setRebalanceStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startRebalanceProgress = () => {
+  const startRebalanceProgress = useCallback(() => {
     stopRebalanceProgress(false);
 
     let nextStep = 0;
@@ -344,7 +344,7 @@ export default function Dashboard() {
 
       setRebalanceStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopRebalanceProgress]);
 
   const analyzeProgress = loading
     ? {
