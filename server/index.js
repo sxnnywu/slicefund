@@ -139,7 +139,8 @@ const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 const GEMINI_MIN_GAP_MS = 2500;
 const MIN_VALIDATED_PICK_RELEVANCE = 2.5;
-const MIN_PLATFORM_BACKFILL_RELEVANCE = 4;
+const POLYMARKET_SEARCH_LIMIT = 50;
+const POLYMARKET_TRENDING_LIMIT = 100;
 let nextGeminiRequestAt = 0;
 let geminiRequestChain = Promise.resolve();
 
@@ -509,7 +510,7 @@ async function searchPolymarket(keywords) {
         "https://gamma-api.polymarket.com/markets",
         {
           params: {
-            _limit: 10,
+            _limit: POLYMARKET_SEARCH_LIMIT,
             closed: false,
             active: true,
             _q: keyword,
@@ -757,35 +758,6 @@ function hydrateRankedPick(rankedPick, markets) {
   };
 }
 
-function createBalancedPickFromMarket(market, thesis, keywords = []) {
-  const platform = market?.platform || "Polymarket";
-  const localRelevance = scoreMarketRelevance(thesis, market, keywords);
-  const { yesOdds, noOdds } = extractYesNoOdds(market || {});
-  const suggestedPosition = yesOdds !== null && noOdds !== null && noOdds > yesOdds ? "NO" : "YES";
-  const currentPrice = suggestedPosition === "YES" ? yesOdds : noOdds;
-  const relevanceScore = Math.max(1, Math.min(10, Math.round(localRelevance)));
-
-  return {
-    id: market?.id,
-    question: market?.question,
-    relevance_score: relevanceScore,
-    suggested_position: suggestedPosition,
-    current_price: currentPrice,
-    yes_odds: yesOdds,
-    no_odds: noOdds,
-    one_liner: `Strong ${platform} match for the thesis keywords and market wording.`,
-    slug: market?.slug || null,
-    platform,
-    image: market?.image || null,
-    volume: market?.volume || null,
-    liquidity: market?.liquidity || null,
-    endDate: market?.endDate || null,
-    marketUrl: buildMarketUrl(platform, market?.slug, market),
-    _localRelevance: localRelevance,
-    _combinedRelevance: localRelevance,
-  };
-}
-
 function scoreExistingPick(pick, markets, thesis, keywords = []) {
   const original = markets.find((market) => market.id === pick?.id);
   const localRelevance = scoreMarketRelevance(thesis, original || pick, keywords);
@@ -828,22 +800,9 @@ function balanceRankedPicks(picks, markets, thesis, keywords = [], limit = 5) {
         .join(", ")}`
     );
   }
-
-  const platforms = ["Polymarket", "Kalshi", "Manifold"];
-  const platformCandidates = Object.fromEntries(
-    platforms.map((platform) => [
-      platform,
-      sortMarketsByRelevance(
-        markets.filter((market) => market?.platform === platform),
-        thesis,
-        keywords
-      ).filter((market) => scoreMarketRelevance(thesis, market, keywords) >= MIN_PLATFORM_BACKFILL_RELEVANCE),
-    ])
-  );
-
   const result = [];
   const usedIds = new Set();
-  const platformCounts = Object.fromEntries(platforms.map((platform) => [platform, 0]));
+  const platformCounts = Object.fromEntries(["Polymarket", "Kalshi", "Manifold"].map((platform) => [platform, 0]));
   const maxPerPlatform = 2;
 
   for (const pick of validatedPicks) {
@@ -853,39 +812,6 @@ function balanceRankedPicks(picks, markets, thesis, keywords = [], limit = 5) {
     result.push(pick);
     usedIds.add(pick.id);
     platformCounts[platform] = (platformCounts[platform] || 0) + 1;
-  }
-
-  for (const platform of platforms) {
-    if ((platformCounts[platform] || 0) > 0) continue;
-
-    const backfillMarket = platformCandidates[platform].find((market) => !usedIds.has(market.id));
-    if (!backfillMarket) continue;
-
-    const chosen = createBalancedPickFromMarket(backfillMarket, thesis, keywords);
-    result.push(chosen);
-    usedIds.add(chosen.id);
-    platformCounts[platform] += 1;
-
-    if (result.length >= limit) {
-      break;
-    }
-  }
-
-  const remainingMarkets = sortMarketsByRelevance(markets, thesis, keywords);
-  for (const market of remainingMarkets) {
-    if (usedIds.has(market.id)) continue;
-
-    const platform = market.platform || "Polymarket";
-    if ((platformCounts[platform] || 0) >= maxPerPlatform) continue;
-    if (scoreMarketRelevance(thesis, market, keywords) < MIN_PLATFORM_BACKFILL_RELEVANCE) continue;
-
-    result.push(createBalancedPickFromMarket(market, thesis, keywords));
-    usedIds.add(market.id);
-    platformCounts[platform] = (platformCounts[platform] || 0) + 1;
-
-    if (result.length >= limit) {
-      break;
-    }
   }
 
   return result
@@ -1335,13 +1261,13 @@ app.post("/api/analyze", async (req, res) => {
     try {
       picks = await rankMarkets(thesis, markets, thesisHistory, keywords);
       if (!Array.isArray(picks) || picks.length === 0) {
-        rankingStrategy = "fallback";
-        picks = balanceRankedPicks(fallbackRankMarkets(markets, thesis), markets, thesis, keywords);
+        rankingStrategy = "gemini_empty";
+        picks = [];
       }
     } catch (rankingError) {
-      rankingStrategy = "fallback";
-      picks = balanceRankedPicks(fallbackRankMarkets(markets, thesis), markets, thesis, keywords);
-      console.error("    Ranking failed, using fallback:", rankingError.message);
+      rankingStrategy = "gemini_failed";
+      picks = [];
+      console.error("    Ranking failed, returning no picks:", rankingError.message);
     }
 
     console.log(`    Returned ${picks.length} picks (${rankingStrategy})`);
@@ -1405,7 +1331,7 @@ app.get("/api/polymarket/trending", async (req, res) => {
   try {
     const response = await axios.get("https://gamma-api.polymarket.com/markets", {
       params: {
-        _limit: 20,
+        _limit: POLYMARKET_TRENDING_LIMIT,
         closed: false,
         active: true,
         _sort: "volume",
