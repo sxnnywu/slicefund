@@ -16,6 +16,7 @@ import PanelKalshi from "../panels/PanelKalshi.jsx";
 import PanelManifold from "../panels/PanelManifold.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
 const ACTIVE_PANEL_KEY = "slicefund_active_panel";
@@ -112,21 +113,7 @@ function normalizeOverviewMarkets(platform, markets) {
 }
 
 async function fetchLiveOverview() {
-  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-    fetch("/api/polymarket/trending"),
-    fetch("/api/kalshi/trending"),
-    fetch("/api/manifold/trending"),
-  ]);
-
-  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-    polyRes.json(),
-    kalshiRes.json(),
-    manifoldRes.json(),
-  ]);
-
-  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-    throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load market overview");
-  }
+  const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
   const allMarkets = [
     ...normalizeOverviewMarkets("Polymarket", polyJson?.markets || []),

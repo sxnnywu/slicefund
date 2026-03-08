@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 function getIcon(question) {
   const q = question.toLowerCase();
@@ -36,17 +37,7 @@ export default function ActiveMarkets() {
   useEffect(() => {
     const fetchMarkets = async () => {
       try {
-        const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-          fetch("/api/polymarket/trending"),
-          fetch("/api/kalshi/trending"),
-          fetch("/api/manifold/trending"),
-        ]);
-
-        const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-          polyRes.json(),
-          kalshiRes.json(),
-          manifoldRes.json(),
-        ]);
+        const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
         const polymarket = (polyJson?.markets || []).map((market) => ({
           ...market,

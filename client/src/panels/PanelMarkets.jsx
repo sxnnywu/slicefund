@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 const COLUMN_CONFIG = [
   { key: "market", label: "Market", width: "1.8fr", alwaysVisible: true },
@@ -111,26 +112,12 @@ export default function PanelMarkets() {
     link: true,
   });
 
-  const fetchMarkets = async () => {
+  const fetchMarkets = async ({ force = false } = {}) => {
     setLoading(true);
     setError(null);
 
     try {
-      const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-        fetch("/api/polymarket/trending"),
-        fetch("/api/kalshi/trending"),
-        fetch("/api/manifold/trending"),
-      ]);
-
-      const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-        polyRes.json(),
-        kalshiRes.json(),
-        manifoldRes.json(),
-      ]);
-
-      if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-        throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load markets");
-      }
+      const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending({ force });
 
       const merged = [
         ...normalizeMarkets("Polymarket", polyJson?.markets || []),
@@ -251,7 +238,7 @@ export default function PanelMarkets() {
             One customizable table with filtering, sorting, and column controls
           </p>
         </div>
-        <button className="sf-btn-smooth" style={s.refreshBtn} onClick={fetchMarkets} disabled={loading}>
+        <button className="sf-btn-smooth" style={s.refreshBtn} onClick={() => fetchMarkets({ force: true })} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>

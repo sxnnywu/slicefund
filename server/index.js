@@ -304,13 +304,49 @@ async function geminiCall(prompt, retries = 3) {
 async function parseThesis(thesis, thesisHistory = []) {
   const historyContext = formatThesisHistoryContext(thesisHistory);
   const text = await geminiCall(
-    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets on Polymarket. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"${historyContext}`
+    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets across Polymarket, Kalshi, and Manifold. Favor portable concepts that work across platforms, not site-specific phrasing. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"${historyContext}`
   );
   const match = text.match(/\[[\s\S]*\]/);
   if (match) {
     return JSON.parse(match[0]);
   }
   return [thesis.slice(0, 50)];
+}
+
+function tokenizeSearchText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2);
+}
+
+function marketMatchesKeyword(keyword, values) {
+  const normalizedKeyword = String(keyword || "").toLowerCase().trim();
+  if (!normalizedKeyword) return false;
+
+  const haystack = values
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase())
+    .join(" ");
+
+  if (haystack.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const keywordTokens = tokenizeSearchText(normalizedKeyword);
+  if (keywordTokens.length === 0) {
+    return false;
+  }
+
+  const haystackTokens = new Set(tokenizeSearchText(haystack));
+  const overlap = keywordTokens.filter((token) => haystackTokens.has(token)).length;
+
+  if (keywordTokens.length === 1) {
+    return overlap === 1;
+  }
+
+  return overlap >= Math.max(2, Math.ceil(keywordTokens.length * 0.6));
 }
 
 // --- Agent 2: Search Polymarket for relevant markets ---
@@ -355,7 +391,7 @@ async function searchKalshi(keywords) {
   let markets = [];
 
   try {
-    markets = await fetchKalshiMarkets({ limit: 200 });
+    markets = await fetchKalshiMarkets({ limit: 1000 });
   } catch (err) {
     console.error("Kalshi market fetch failed:", err.message);
     return [];
@@ -363,11 +399,15 @@ async function searchKalshi(keywords) {
 
   for (const keyword of keywords) {
     try {
-      const keywordLower = keyword.toLowerCase();
       const matchedMarkets = markets.filter((market) =>
-        [market.question, market.subtitle, market.eventTicker, market.ticker]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(keywordLower))
+        marketMatchesKeyword(keyword, [
+          market.question,
+          market.subtitle,
+          market.eventTicker,
+          market.ticker,
+          market.rulesPrimary,
+          market.rulesSecondary,
+        ])
       );
 
       allMarkets.push(...matchedMarkets);
@@ -388,6 +428,25 @@ async function searchKalshi(keywords) {
 // --- Agent 2c: Search Manifold for relevant markets ---
 async function searchManifold(keywords) {
   const allMarkets = [];
+  let catalog = [];
+
+  try {
+    const response = await axios.get(
+      "https://api.manifold.markets/v0/markets",
+      {
+        params: {
+          limit: 500,
+        },
+        timeout: 10000,
+      }
+    );
+
+    catalog = (response.data || []).filter((market) =>
+      market.isResolved === false && market.closeTime > Date.now()
+    );
+  } catch (err) {
+    console.error("Manifold catalog fetch failed:", err.message);
+  }
 
   for (const keyword of keywords) {
     try {
@@ -396,14 +455,24 @@ async function searchManifold(keywords) {
         {
           params: {
             term: keyword,
-            limit: 10,
+            limit: 50,
           },
           timeout: 8000,
         }
       );
-      
-      const markets = response.data || [];
-      
+
+      const searchMatches = response.data || [];
+      const catalogMatches = catalog.filter((market) =>
+        marketMatchesKeyword(keyword, [
+          market.question,
+          market.description,
+          market.textDescription,
+          market.slug,
+        ])
+      );
+
+      const markets = [...searchMatches, ...catalogMatches];
+
       for (const market of markets) {
         if (market.isResolved === false && market.closeTime > Date.now()) {
           allMarkets.push({

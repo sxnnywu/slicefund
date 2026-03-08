@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 function toProbability(value) {
   const numeric = Number(value);
@@ -81,26 +82,12 @@ export default function PanelTrades() {
   const [error, setError] = useState(null);
   const [platform, setPlatform] = useState("all");
 
-  const fetchData = async () => {
+  const fetchData = async ({ force = false } = {}) => {
     setLoading(true);
     setError(null);
 
     try {
-      const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-        fetch("/api/polymarket/trending"),
-        fetch("/api/kalshi/trending"),
-        fetch("/api/manifold/trending"),
-      ]);
-
-      const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-        polyRes.json(),
-        kalshiRes.json(),
-        manifoldRes.json(),
-      ]);
-
-      if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-        throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load market tape");
-      }
+      const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending({ force });
 
       const merged = [
         ...normalizeMarkets("Polymarket", polyJson?.markets || []),
@@ -137,7 +124,7 @@ export default function PanelTrades() {
             Live market snapshots from Polymarket, Kalshi, and Manifold
           </p>
         </div>
-        <button className="sf-btn-smooth" style={s.refreshBtn} onClick={fetchData} disabled={loading}>
+        <button className="sf-btn-smooth" style={s.refreshBtn} onClick={() => fetchData({ force: true })} disabled={loading}>
           {loading ? "Refreshing..." : "Refresh"}
         </button>
       </div>

@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import usePhantom from "../hooks/usePhantom.js";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 function getDecisionStyles(decision) {
   if (decision === "CONFIRMED") {
@@ -169,23 +170,7 @@ function buildLiveOpportunities(markets, maxPairs = 4) {
 }
 
 async function fetchLiveArbCandidates() {
-  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-    fetch("/api/polymarket/trending"),
-    fetch("/api/kalshi/trending"),
-    fetch("/api/manifold/trending"),
-  ]);
-
-  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-    polyRes.json(),
-    kalshiRes.json(),
-    manifoldRes.json(),
-  ]);
-
-  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-    throw new Error(
-      polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to fetch live markets"
-    );
-  }
+  const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
   const allMarkets = [
     ...normalizeMarketsByPlatform(polyJson?.markets || [], "Polymarket"),
