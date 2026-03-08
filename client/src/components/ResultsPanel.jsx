@@ -133,7 +133,7 @@ function normalizeAgentAnalysis(rawContent) {
   return sections;
 }
 
-export default function ResultsPanel({ data }) {
+export default function ResultsPanel({ data, onCreateBasket }) {
   const { thesis, keywords, totalMarketsFound, picks, agentAnalysis, thesisMapping } = data;
   const compactAgentAnalysis = normalizeAgentAnalysis(agentAnalysis?.content);
   const [expandedWhy, setExpandedWhy] = useState({});
@@ -216,6 +216,52 @@ export default function ResultsPanel({ data }) {
         <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>No relevant markets found.</div>
       ) : (
         <div>
+          {data?.thesisMapping?.markets && data.thesisMapping.markets.length > 0 ? (
+            <div style={{ marginBottom: 20 }}>
+              <button
+                onClick={() => {
+                  console.log("[CreateBasket] Button clicked");
+                  const basketData = {
+                    name: `${data.thesis.slice(0, 40)}${data.thesis.length > 40 ? '...' : ''}`,
+                    markets: data.thesisMapping.markets.map(m => ({
+                      market: m.question,
+                      platform: m.platform,
+                      target_weight: 1 / (data.thesisMapping.markets.length || 1),
+                      current_weight: toProbability(m.probability) || 0.5,
+                    })),
+                  };
+                  console.log("[CreateBasket] Basket data:", basketData);
+                  console.log("[CreateBasket] Callback exists:", !!onCreateBasket);
+                  if (onCreateBasket) {
+                    onCreateBasket(basketData);
+                  } else {
+                    console.warn("[CreateBasket] No onCreateBasket callback provided");
+                  }
+                }}
+                style={{
+                  width: "100%",
+                  padding: "12px 16px",
+                  background: "var(--green)",
+                  color: "#fff",
+                  border: "none",
+                  borderRadius: 10,
+                  fontFamily: "'Outfit', sans-serif",
+                  fontSize: 13,
+                  fontWeight: 700,
+                  cursor: "pointer",
+                  transition: "all 0.2s",
+                }}
+                onMouseOver={(e) => e.target.style.opacity = "0.9"}
+                onMouseOut={(e) => e.target.style.opacity = "1"}
+              >
+                📦 Create Basket from These Markets
+              </button>
+            </div>
+          ) : (
+            <div style={{ marginBottom: 20, padding: "12px 16px", background: "var(--red-light)", borderRadius: 10, color: "var(--text-dim)", fontSize: 12 }}>
+              ⚠️ No cross-platform market mapping available
+            </div>
+          )}
           <div style={styles.sectionTitle}>Top Market Picks</div>
           {picks.map((pick, i) => {
             const pickKey = pick.id || i;

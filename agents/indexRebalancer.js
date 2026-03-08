@@ -155,6 +155,26 @@ export async function saveIds(assistantId, threadId) {
   }
 }
 
+function isBackboardNotFound(error) {
+  if (error?.response?.status !== 404) {
+    return false;
+  }
+
+  const detail = String(error?.response?.data?.detail || "").toLowerCase();
+  return detail.includes("thread not found") || detail.includes("assistant not found") || detail.includes("not found");
+}
+
+async function createFreshRebalancerSession() {
+  const assistantId = await createAssistant();
+  const threadId = await createThread(assistantId);
+
+  await saveIds(assistantId, threadId);
+  process.env.INDEX_REBALANCER_ASSISTANT_ID = assistantId;
+  process.env.INDEX_REBALANCER_THREAD_ID = threadId;
+
+  return { assistantId, threadId };
+}
+
 /**
  * Check basket for rebalancing needs using IndexRebalancer agent
  * @param {Array} basket - Array of {market, platform, target_weight, current_weight}
@@ -162,26 +182,29 @@ export async function saveIds(assistantId, threadId) {
  */
 export async function checkBasketRebalance(basket) {
   let assistantId = process.env.INDEX_REBALANCER_ASSISTANT_ID;
-  let threadId = process.env.INDEX_REBALANCER_THREAD_ID;
 
   // Create or reuse assistant
   if (!assistantId) {
-    assistantId = await createAssistant();
-    threadId = await createThread(assistantId);
-    await saveIds(assistantId, threadId);
-    process.env.INDEX_REBALANCER_ASSISTANT_ID = assistantId;
-    process.env.INDEX_REBALANCER_THREAD_ID = threadId;
+    const freshSession = await createFreshRebalancerSession();
+    assistantId = freshSession.assistantId;
   }
 
-  // Create thread if missing
-  if (!threadId) {
-    threadId = await createThread(assistantId);
-  }
-
-  // Send basket to agent
+  // Use a fresh thread for each check to avoid stale-thread failures.
   const basketStr = JSON.stringify(basket);
-  const response = await sendMessage(threadId, `Basket: ${basketStr}`);
-  return response;
+
+  try {
+    const executionThreadId = await createThread(assistantId);
+    process.env.INDEX_REBALANCER_THREAD_ID = executionThreadId;
+    return await sendMessage(executionThreadId, `Basket: ${basketStr}`);
+  } catch (error) {
+    if (!isBackboardNotFound(error)) {
+      throw error;
+    }
+
+    console.warn("[checkBasketRebalance] Backboard assistant/thread stale. Recreating session...");
+    const freshSession = await createFreshRebalancerSession();
+    return sendMessage(freshSession.threadId, `Basket: ${basketStr}`);
+  }
 }
 
 export async function main() {

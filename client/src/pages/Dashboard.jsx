@@ -195,6 +195,7 @@ export default function Dashboard() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [initialBasket, setInitialBasket] = useState(null);
   const [analyzeStepIndex, setAnalyzeStepIndex] = useState(-1);
   const [searches, setSearches] = useState(() => loadStoredSearches());
   const analyzeProgressTimerRef = useRef(null);
@@ -432,7 +433,10 @@ export default function Dashboard() {
   const renderPanel = () => {
     switch (panel) {
       case "thesis":
-        return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} progress={analyzeProgress} />;
+        return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} progress={analyzeProgress} onCreateBasket={(basket) => {
+          setInitialBasket(basket);
+          setPanel('baskets');
+        }} />;
       case "polymarket":
         return <PanelPolymarket />;
       case "kalshi":
@@ -440,7 +444,7 @@ export default function Dashboard() {
       case "manifold":
         return <PanelManifold />;
       case "baskets":
-        return <PanelBaskets progress={rebalanceProgress} onStartProgress={startRebalanceProgress} onStopProgress={stopRebalanceProgress} />;
+        return <PanelBaskets progress={rebalanceProgress} onStartProgress={startRebalanceProgress} onStopProgress={stopRebalanceProgress} initialBasket={initialBasket} onBasketLoaded={() => setInitialBasket(null)} />;
       case "markets":
         return <PanelMarkets />;
       case "arb":
@@ -509,7 +513,10 @@ export default function Dashboard() {
               <div>
                 <ThesisCard onAnalyze={analyze} loading={loading} progress={analyzeProgress} />
                 {error && <div style={styles.error}>⚠️ {error}</div>}
-                {results && <ResultsPanel data={results} />}
+                {results && <ResultsPanel data={results} onCreateBasket={(basket) => {
+                  setInitialBasket(basket);
+                  setPanel('baskets');
+                }} />}
                 <ActiveMarkets />
                 <PastSearches searches={searches} />
               </div>

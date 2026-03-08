@@ -979,6 +979,44 @@ function normalizeWeightFraction(value) {
   return Math.max(0, numeric);
 }
 
+function buildFallbackRebalancePositions(basket, driftThreshold = 0.05) {
+  if (!Array.isArray(basket)) return [];
+
+  return basket
+    .map((entry) => {
+      const targetWeight = normalizeWeightFraction(
+        entry?.target_weight ??
+        entry?.weight ??
+        entry?.allocation ??
+        0
+      );
+
+      const currentWeight = normalizeWeightFraction(
+        entry?.current_weight ??
+        entry?.currentWeight ??
+        targetWeight
+      );
+
+      const drift = currentWeight - targetWeight;
+      const absDrift = Math.abs(drift);
+
+      if (targetWeight <= 0 || absDrift < driftThreshold) {
+        return null;
+      }
+
+      return {
+        market: entry?.market || entry?.question || entry?.name || "Basket position",
+        platform: entry?.platform || "Polymarket",
+        direction: drift > 0 ? "DECREASE" : "INCREASE",
+        adjustment_pct: absDrift,
+        target_weight: targetWeight,
+        current_weight: currentWeight,
+        source: "drift_fallback",
+      };
+    })
+    .filter(Boolean);
+}
+
 function buildMockTrade({
   walletAddress,
   solanaSignature,
@@ -1892,7 +1930,7 @@ app.post("/api/mock/polymarket/execute-basket", async (req, res) => {
     const rebalanceResponse = await checkBasketRebalance(basket);
     const rebalancePayload = parseAgentPayload(rebalanceResponse?.content);
 
-    const positions =
+    const parsedPositions =
       rebalancePayload?.positions ||
       rebalancePayload?.rebalances ||
       rebalancePayload?.instructions ||
@@ -1900,10 +1938,19 @@ app.post("/api/mock/polymarket/execute-basket", async (req, res) => {
       rebalancePayload?.rebalanceInstructions ||
       [];
 
-    if (!Array.isArray(positions) || positions.length === 0) {
-      return res.status(422).json({
-        error: "Rebalancer did not return positions",
-        details: rebalancePayload,
+    let positions = Array.isArray(parsedPositions) ? parsedPositions : [];
+
+    if (positions.length === 0) {
+      positions = buildFallbackRebalancePositions(basket, 0.05);
+    }
+
+    if (positions.length === 0) {
+      return res.json({
+        count: 0,
+        trades: [],
+        rebalance: rebalancePayload,
+        noRebalanceNeeded: true,
+        message: "No rebalance needed. All positions are within drift threshold.",
       });
     }
 
@@ -1961,6 +2008,16 @@ app.post("/api/mock/polymarket/execute-basket", async (req, res) => {
         });
       })
       .filter(Boolean);
+
+    if (trades.length === 0) {
+      return res.json({
+        count: 0,
+        trades: [],
+        rebalance: rebalancePayload,
+        noRebalanceNeeded: true,
+        message: "No rebalance needed. Suggested adjustments are below executable threshold.",
+      });
+    }
 
     await appendMockTrades(trades);
 
