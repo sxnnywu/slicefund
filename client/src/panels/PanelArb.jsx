@@ -197,6 +197,7 @@ async function fetchLiveArbCandidates() {
 }
 
 export default function PanelArb({ progress, onStartProgress, onStopProgress }) {
+  const leverageOptions = [1, 2, 3];
   const [arbs, setArbs] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState(null);
@@ -204,6 +205,7 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
   const [executingId, setExecutingId] = useState(null);
   const [execStatus, setExecStatus] = useState(null);
   const [execError, setExecError] = useState(null);
+  const [leverage, setLeverage] = useState(1);
   const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
   const scanInFlightRef = useRef(false);
 
@@ -278,8 +280,12 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
         actions: alert.actions,
         priceA: alert.priceA,
         priceB: alert.priceB,
+        leverage: Number(leverage) || 1,
         timestamp: new Date().toISOString(),
       };
+
+      const leverageValue = Number(leverage) || 1;
+      const notionalSize = 100 * leverageValue;
 
       const signature = activeWallet
         ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
@@ -292,6 +298,7 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
           alert,
           walletAddress: activeWallet,
           solanaSignature: signature,
+          size: notionalSize,
           metadata: { payload },
         }),
       });
@@ -380,14 +387,31 @@ export default function PanelArb({ progress, onStartProgress, onStopProgress }) 
       </div>
 
       <div className="sf-card-smooth" style={s.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
-          <div style={{ fontSize: 15, fontWeight: 700 }}>
-            {isScanning ? "Scanning markets..." : `${arbs.length} opportunities analyzed`}
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+            <div style={{ fontSize: 15, fontWeight: 700 }}>
+              {isScanning ? "Scanning markets..." : `${arbs.length} opportunities analyzed`}
+            </div>
+            <div style={s.controls}>
+              <label style={s.leverageLabel} htmlFor="arb-leverage">
+                Leverage
+              </label>
+              <select
+                id="arb-leverage"
+                value={leverage}
+                onChange={(event) => setLeverage(Number(event.target.value))}
+                style={s.leverageSelect}
+              >
+                {leverageOptions.map((value) => (
+                  <option key={value} value={value}>
+                    {value}x
+                  </option>
+                ))}
+              </select>
+              <button style={s.scanBtn} onClick={runScans} disabled={isScanning}>
+                {isScanning ? "Scanning..." : "Scan now"}
+              </button>
+            </div>
           </div>
-          <button style={s.scanBtn} onClick={runScans} disabled={isScanning}>
-            {isScanning ? "Scanning..." : "Scan now"}
-          </button>
-        </div>
 
         {phantomInstalled === false && (
           <div style={s.notice}>Connect Phantom to sign mock trades.</div>
@@ -490,6 +514,7 @@ const s = {
   statL: { fontSize: 11, fontWeight: 600, letterSpacing: 1.5, color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 },
   statV: { fontFamily: "'DM Mono',monospace", fontSize: 28, fontWeight: 500 },
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)" },
+  controls: { display: "flex", alignItems: "center", gap: 10 },
   scanBtn: {
     padding: "8px 14px",
     borderRadius: 10,
@@ -500,6 +525,23 @@ const s = {
     fontWeight: 600,
     color: "var(--blue)",
     cursor: "pointer",
+  },
+  leverageLabel: {
+    fontSize: 11,
+    fontWeight: 700,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "var(--text-dim)",
+  },
+  leverageSelect: {
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    fontFamily: "'DM Mono',monospace",
   },
   execBtn: {
     padding: "7px 10px",

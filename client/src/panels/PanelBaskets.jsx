@@ -202,6 +202,7 @@ async function checkRebalance(basket) {
 }
 
 export default function PanelBaskets({ progress, onStartProgress, onStopProgress }) {
+  const leverageOptions = [1, 2, 3];
   const { wallet, walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
   const [liveBaskets, setLiveBaskets] = useState([]);
   const [customBaskets, setCustomBaskets] = useState([]);
@@ -218,6 +219,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
   const [buyingName, setBuyingName] = useState(null);
   const [buyStatus, setBuyStatus] = useState(null);
   const [buyError, setBuyError] = useState(null);
+  const [leverage, setLeverage] = useState(1);
 
   useEffect(() => {
     const load = async () => {
@@ -389,8 +391,12 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         type: "basket_execute",
         basket: selectedBasket.name,
         markets: selectedBasket.markets.map((m) => m.market),
+        leverage: Number(leverage) || 1,
         timestamp: new Date().toISOString(),
       };
+
+      const leverageValue = Number(leverage) || 1;
+      const notional = 100 * leverageValue;
 
       let signature = `mock-sig-${Date.now()}`;
       if (activeWallet && typeof signMessage === "function") {
@@ -409,7 +415,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           basket: selectedBasket.markets,
           walletAddress: activeWallet,
           solanaSignature: signature,
-          notional: 100,
+          notional,
         }),
       });
 
@@ -456,8 +462,12 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         type: "basket_buy",
         basket: basket.name,
         markets: basket.markets.map((m) => m.market),
+        leverage: Number(leverage) || 1,
         timestamp: new Date().toISOString(),
       };
+
+      const leverageValue = Number(leverage) || 1;
+      const notional = 100 * leverageValue;
 
       let signature = `mock-buy-sig-${Date.now()}`;
       if (activeWallet && typeof signMessage === "function") {
@@ -476,7 +486,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           basket: basket.markets,
           walletAddress: activeWallet,
           solanaSignature: signature,
-          notional: 100,
+          notional,
         }),
       });
 
@@ -503,6 +513,23 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
             {loading ? "Loading live baskets..." : `${stats.totalBaskets} live/custom baskets from Polymarket, Kalshi, Manifold`}
           </p>
+        </div>
+        <div style={s.leverageControl}>
+          <label style={s.leverageLabel} htmlFor="basket-leverage">
+            Leverage
+          </label>
+          <select
+            id="basket-leverage"
+            value={leverage}
+            onChange={(event) => setLeverage(Number(event.target.value))}
+            style={s.leverageSelect}
+          >
+            {leverageOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}x
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -712,6 +739,18 @@ const s = {
   statL: { fontSize: 11, fontWeight: 600, letterSpacing: 1.5, color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 },
   statV: { fontFamily: "'DM Mono',monospace", fontSize: 28, fontWeight: 500 },
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)", marginBottom: 24 },
+  leverageControl: { display: "flex", alignItems: "center", gap: 10 },
+  leverageLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--text-dim)" },
+  leverageSelect: {
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    fontFamily: "'DM Mono',monospace",
+  },
   action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", fontFamily: "'DM Mono',monospace" },
   row: { display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: "1px solid var(--border2)" },
   num: {
