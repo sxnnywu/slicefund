@@ -4,9 +4,6 @@ import { useAuth0 } from "@auth0/auth0-react";
 const NAV = [
   { id: "home", label: "Dashboard", icon: "▦" },
   { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
-  { id: "polymarket", label: "Polymarket", icon: "🟣", badge: "LIVE" },
-  { id: "kalshi", label: "Kalshi", icon: "⚖️", badge: "LIVE" },
-  { id: "manifold", label: "Manifold", icon: "🎲", badge: "LIVE" },
   { id: "baskets", label: "My Baskets", icon: "📈" },
   { id: "markets", label: "All Markets", icon: "📊" },
   { id: "trades", label: "Trades", icon: "🧾" },

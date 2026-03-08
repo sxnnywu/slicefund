@@ -27,6 +27,14 @@ const ANALYZE_PROGRESS_STEPS = [
   "Mapper: Building cross-platform thesis mapping",
   "Researcher: Generating concise thesis analysis",
 ];
+const ARB_PROGRESS_STEPS = [
+  "Agent: Fetching live market candidates",
+  "Agent: Scoring arbitrage opportunities",
+];
+const REBALANCE_PROGRESS_STEPS = [
+  "Agent: Analyzing basket drift",
+  "Agent: Generating rebalance recommendations",
+];
 
 function toProbability(value) {
   const numeric = Number(value);
@@ -179,6 +187,10 @@ export default function Dashboard() {
   const [analyzeStepIndex, setAnalyzeStepIndex] = useState(-1);
   const [searches, setSearches] = useState(() => loadStoredSearches());
   const analyzeProgressTimerRef = useRef(null);
+  const [arbStepIndex, setArbStepIndex] = useState(-1);
+  const arbProgressTimerRef = useRef(null);
+  const [rebalanceStepIndex, setRebalanceStepIndex] = useState(-1);
+  const rebalanceProgressTimerRef = useRef(null);
   const [liveOverview, setLiveOverview] = useState({
     loading: true,
     error: null,
@@ -202,6 +214,14 @@ export default function Dashboard() {
     if (analyzeProgressTimerRef.current) {
       clearInterval(analyzeProgressTimerRef.current);
       analyzeProgressTimerRef.current = null;
+    }
+    if (arbProgressTimerRef.current) {
+      clearInterval(arbProgressTimerRef.current);
+      arbProgressTimerRef.current = null;
+    }
+    if (rebalanceProgressTimerRef.current) {
+      clearInterval(rebalanceProgressTimerRef.current);
+      rebalanceProgressTimerRef.current = null;
     }
   }, []);
 
@@ -269,12 +289,80 @@ export default function Dashboard() {
     }, 1600);
   };
 
+  const stopArbProgress = (reset = true) => {
+    if (arbProgressTimerRef.current) {
+      clearInterval(arbProgressTimerRef.current);
+      arbProgressTimerRef.current = null;
+    }
+
+    if (reset) {
+      setArbStepIndex(-1);
+    }
+  };
+
+  const startArbProgress = () => {
+    stopArbProgress(false);
+
+    let nextStep = 0;
+    setArbStepIndex(0);
+
+    arbProgressTimerRef.current = setInterval(() => {
+      nextStep += 1;
+
+      if (nextStep >= ARB_PROGRESS_STEPS.length) {
+        stopArbProgress(false);
+        return;
+      }
+
+      setArbStepIndex(nextStep);
+    }, 1600);
+  };
+
+  const stopRebalanceProgress = (reset = true) => {
+    if (rebalanceProgressTimerRef.current) {
+      clearInterval(rebalanceProgressTimerRef.current);
+      rebalanceProgressTimerRef.current = null;
+    }
+
+    if (reset) {
+      setRebalanceStepIndex(-1);
+    }
+  };
+
+  const startRebalanceProgress = () => {
+    stopRebalanceProgress(false);
+
+    let nextStep = 0;
+    setRebalanceStepIndex(0);
+
+    rebalanceProgressTimerRef.current = setInterval(() => {
+      nextStep += 1;
+
+      if (nextStep >= REBALANCE_PROGRESS_STEPS.length) {
+        stopRebalanceProgress(false);
+        return;
+      }
+
+      setRebalanceStepIndex(nextStep);
+    }, 1600);
+  };
+
   const analyzeProgress = loading
     ? {
       steps: ANALYZE_PROGRESS_STEPS,
       currentStep: Math.max(0, analyzeStepIndex),
     }
     : null;
+
+  const arbProgress = {
+    steps: ARB_PROGRESS_STEPS,
+    currentStep: Math.max(0, arbStepIndex),
+  };
+
+  const rebalanceProgress = {
+    steps: REBALANCE_PROGRESS_STEPS,
+    currentStep: Math.max(0, rebalanceStepIndex),
+  };
 
   const analyze = async (thesis) => {
     setLoading(true);
@@ -331,11 +419,11 @@ export default function Dashboard() {
       case "manifold":
         return <PanelManifold />;
       case "baskets":
-        return <PanelBaskets />;
+        return <PanelBaskets progress={rebalanceProgress} onStartProgress={startRebalanceProgress} onStopProgress={stopRebalanceProgress} />;
       case "markets":
         return <PanelMarkets />;
       case "arb":
-        return <PanelArb />;
+        return <PanelArb progress={arbProgress} onStartProgress={startArbProgress} onStopProgress={stopArbProgress} />;
       case "index":
         return <PanelIndex />;
       case "cards":
