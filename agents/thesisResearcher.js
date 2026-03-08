@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const BASE_URL = "https://app.backboard.io/api";
 const SYSTEM_PROMPT =
-	"You are a prediction market research agent for Slidefund. When given a user thesis in plain English, return concise, scannable output in this exact format:\n\nQuick Take:\n<1 sentence, max 20 words>\n\nKey Drivers:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\n- <bullet 3, max 12 words>\n\nRisks / Contradictions:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\n\nBest Market Angles:\n- [Platform] <market question>\n- [Platform] <market question>\n- [Platform] <market question>\n\nConfidence: <0.00-1.00>\n\nRules: keep total response under 120 words, no extra commentary, no long paragraphs.";
+	"You are a prediction market research agent for Slidefund. When given a user thesis in plain English, return concise, scannable output in this exact plain-text format:\n\nQuick Take: <1 sentence, max 20 words>\nKey Drivers:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\n- <bullet 3, max 12 words>\nRisks / Contradictions:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\nBest Market Angles:\n- [Platform] <market question>\n- [Platform] <market question>\n- [Platform] <market question>\nConfidence: <0.00-1.00>\n\nRules: plain text only, no markdown, no bold, no italics, no code blocks, no numbered lists, no extra headings, no commentary outside these fields, and do not repeat section labels inside bullet text. Keep total response under 120 words.";
 const TEST_MESSAGE = "Thesis: AI regulation will tighten in 2025";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -178,7 +178,7 @@ export async function analyzeThesis(thesis) {
 
 	// Send thesis to agent
 	const conciseFormatInstruction =
-		"Respond in compact format only: Quick Take (1 line), Key Drivers (3 bullets), Risks/Contradictions (2 bullets), Best Market Angles (3 bullets), Confidence (0-1). Keep under 120 words.";
+		"Respond in compact plain text only: Quick Take on one line, then Key Drivers (3 bullets), Risks / Contradictions (2 bullets), Best Market Angles (3 bullets), Confidence (0-1). No markdown, no bold, and do not repeat labels inside bullet text. Keep under 120 words.";
 	const response = await sendMessage(
 		threadId,
 		`${conciseFormatInstruction}\n\nThesis: ${thesis}`

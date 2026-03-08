@@ -7,6 +7,39 @@ function compactLine(text, maxChars = 96) {
   return `${clean.slice(0, maxChars - 1).trimEnd()}…`;
 }
 
+function cleanAgentText(text) {
+  if (typeof text !== "string") return "";
+
+  return text
+    .replace(/\r/g, "")
+    .replace(/[*_`]+/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function normalizeAgentHeading(line) {
+  return cleanAgentText(line)
+    .toLowerCase()
+    .replace(/[:\-]+$/g, "")
+    .trim();
+}
+
+function stripSectionLabel(line) {
+  return cleanAgentText(line).replace(
+    /^(quick take|key drivers|risks\s*\/\s*contradictions|risks|contradictions|best market angles|market angles|confidence)\s*[:\-]?\s*/i,
+    ""
+  ).trim();
+}
+
+function splitInlineItems(text) {
+  return cleanAgentText(text)
+    .split(/\s*[;•]\s*|\s+-\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
 function toProbability(value) {
   const numeric = Number(value);
   if (!Number.isFinite(numeric)) return null;
@@ -35,6 +68,11 @@ function normalizeAgentAnalysis(rawContent) {
 
   const cleaned = rawContent
     .replace(/\r/g, "")
+    .replace(/[*_`]+/g, "")
+    .replace(
+      /\s+(Quick Take|Key Drivers|Risks\s*\/\s*Contradictions|Risks|Contradictions|Best Market Angles|Market Angles|Confidence)\s*:/gi,
+      "\n$1:"
+    )
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
@@ -55,32 +93,35 @@ function normalizeAgentAnalysis(rawContent) {
   let currentSection = null;
 
   for (const line of lines) {
-    const normalized = line.toLowerCase().replace(/[:\-]+$/g, "").trim();
+    const normalized = normalizeAgentHeading(line);
 
     if (normalized.startsWith("quick take")) {
       currentSection = "quickTake";
-      const sameLineValue = line.replace(/quick take\s*[:\-]?\s*/i, "").trim();
+      const sameLineValue = stripSectionLabel(line);
       if (sameLineValue.length > 0) sections.quickTake = sameLineValue;
       continue;
     }
 
     if (normalized.startsWith("key drivers")) {
       currentSection = "keyDrivers";
+      sections.keyDrivers.push(...splitInlineItems(stripSectionLabel(line)));
       continue;
     }
 
     if (normalized.includes("risks") || normalized.includes("contradictions")) {
       currentSection = "risks";
+      sections.risks.push(...splitInlineItems(stripSectionLabel(line)));
       continue;
     }
 
     if (normalized.startsWith("best market angles") || normalized.startsWith("market angles")) {
       currentSection = "angles";
+      sections.angles.push(...splitInlineItems(stripSectionLabel(line)));
       continue;
     }
 
     if (normalized.startsWith("confidence")) {
-      const match = line.match(/(0(?:\.\d+)?|1(?:\.0+)?)|([0-9]{1,3})%/i);
+      const match = cleanAgentText(line).match(/(0(?:\.\d+)?|1(?:\.0+)?)|([0-9]{1,3})%/i);
       if (match) {
         if (match[2]) {
           sections.confidence = Math.max(0, Math.min(1, Number(match[2]) / 100));
@@ -91,7 +132,7 @@ function normalizeAgentAnalysis(rawContent) {
       continue;
     }
 
-    const bullet = line.replace(/^[\-•*]\s*/, "").trim();
+    const bullet = stripSectionLabel(line.replace(/^[\-•*]\s*/, "").trim());
     if (!bullet) continue;
 
     if (currentSection === "quickTake") {
@@ -126,10 +167,10 @@ function normalizeAgentAnalysis(rawContent) {
     sections.quickTake = firstSentence ? firstSentence.trim() : cleaned.slice(0, 140);
   }
 
-  sections.quickTake = compactLine(sections.quickTake, 120);
-  sections.keyDrivers = sections.keyDrivers.map((item) => compactLine(item, 64)).slice(0, 3);
-  sections.risks = sections.risks.map((item) => compactLine(item, 64)).slice(0, 2);
-  sections.angles = sections.angles.map((item) => compactLine(item, 70)).slice(0, 3);
+  sections.quickTake = compactLine(cleanAgentText(sections.quickTake), 120);
+  sections.keyDrivers = [...new Set(sections.keyDrivers.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 3);
+  sections.risks = [...new Set(sections.risks.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 2);
+  sections.angles = [...new Set(sections.angles.map((item) => compactLine(cleanAgentText(item), 70)).filter(Boolean))].slice(0, 3);
 
   return sections;
 }
@@ -156,7 +197,7 @@ export default function ResultsPanel({ data }) {
       {/* Agent Analysis Section */}
       {compactAgentAnalysis && (
         <div style={styles.agentSection}>
-          <div style={styles.agentTitle}>🤖 ThesisResearcher Agent</div>
+          <div style={styles.agentTitle}>Thesis Researcher Agent</div>
           <div style={styles.quickTakeRow}>
             <span style={styles.quickTakePill}>Quick Take</span>
             <span style={styles.quickTakeInline}>{compactAgentAnalysis.quickTake}</span>
@@ -205,27 +246,7 @@ export default function ResultsPanel({ data }) {
         </div>
       )}
 
-      {/* Thesis Mapping Section */}
-      {thesisMapping?.markets && thesisMapping.markets.length > 0 && (
-        <div style={styles.mappingSection}>
-          <div style={styles.sectionTitle}>
-            📊 Cross-Platform Markets (Confidence: {(thesisMapping.confidence_score * 100).toFixed(0)}%)
-          </div>
-          <div style={styles.mappingGrid}>
-            {thesisMapping.markets.map((m, i) => (
-              <div key={i} style={styles.mappingCard}>
-                <div style={styles.platform}>{m.platform}</div>
-                <div style={styles.mappingQuestion}>{compactLine(m.question, 112)}</div>
-                {m.estimated_probability && (
-                  <div style={styles.probability}>
-                    Estimated: {(m.estimated_probability * 100).toFixed(0)}%
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      
 
       {picks.length === 0 ? (
         <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>No relevant markets found.</div>
