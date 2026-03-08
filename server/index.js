@@ -138,6 +138,9 @@ const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 const GEMINI_MIN_GAP_MS = 2500;
+const MIN_VALIDATED_PICK_RELEVANCE = 2.5;
+const POLYMARKET_SEARCH_LIMIT = 50;
+const POLYMARKET_TRENDING_LIMIT = 100;
 let nextGeminiRequestAt = 0;
 let geminiRequestChain = Promise.resolve();
 
@@ -382,6 +385,121 @@ function marketMatchesKeyword(keyword, values) {
   return overlap >= Math.max(2, Math.ceil(keywordTokens.length * 0.6));
 }
 
+function computeTokenOverlap(tokens, tokenSet) {
+  if (!Array.isArray(tokens) || tokens.length === 0 || !(tokenSet instanceof Set) || tokenSet.size === 0) {
+    return 0;
+  }
+
+  let matches = 0;
+  for (const token of tokens) {
+    if (tokenSet.has(token)) {
+      matches += 1;
+    }
+  }
+
+  return matches / Math.max(1, Math.min(tokens.length, tokenSet.size));
+}
+
+function scoreMarketRelevance(thesis, market, keywords = []) {
+  const thesisTokens = Array.from(new Set(tokenizeSearchText(thesis)));
+  const questionText = [market?.question, market?.subtitle, market?.eventTicker, market?.ticker]
+    .filter(Boolean)
+    .join(" ");
+  const detailText = [market?.description, market?.rulesPrimary, market?.rulesSecondary]
+    .filter(Boolean)
+    .join(" ");
+
+  const questionTokens = new Set(tokenizeSearchText(questionText));
+  const detailTokens = new Set(tokenizeSearchText(detailText));
+  const normalizedQuestion = questionText.toLowerCase();
+  const normalizedDetail = detailText.toLowerCase();
+  const normalizedThesis = String(thesis || "").toLowerCase();
+
+  let score = 0;
+  score += computeTokenOverlap(thesisTokens, questionTokens) * 8;
+  score += computeTokenOverlap(thesisTokens, detailTokens) * 3;
+
+  if (normalizedThesis && normalizedQuestion.includes(normalizedThesis)) {
+    score += 4;
+  }
+
+  for (const keyword of keywords) {
+    const normalizedKeyword = String(keyword || "").toLowerCase().trim();
+    if (!normalizedKeyword) continue;
+
+    if (marketMatchesKeyword(normalizedKeyword, [questionText, detailText])) {
+      score += normalizedQuestion.includes(normalizedKeyword) ? 2.5 : 1.25;
+    }
+  }
+
+  const volume = Number(market?.volume) || 0;
+  const liquidity = Number(market?.liquidity) || 0;
+  score += Math.min(1.5, Math.log10(1 + volume + liquidity));
+
+  return score;
+}
+
+function compareMarketsByRelevance(a, b, thesis, keywords = []) {
+  const scoreA = scoreMarketRelevance(thesis, a, keywords);
+  const scoreB = scoreMarketRelevance(thesis, b, keywords);
+
+  if (scoreA !== scoreB) {
+    return scoreB - scoreA;
+  }
+
+  const activityA = (Number(a?.volume) || 0) + (Number(a?.liquidity) || 0);
+  const activityB = (Number(b?.volume) || 0) + (Number(b?.liquidity) || 0);
+  return activityB - activityA;
+}
+
+function sortMarketsByRelevance(markets, thesis, keywords = []) {
+  return [...markets].sort((a, b) => compareMarketsByRelevance(a, b, thesis, keywords));
+}
+
+function selectMarketsForRanking(markets, thesis, keywords = [], limit = 24) {
+  const byPlatform = {
+    Polymarket: sortMarketsByRelevance(markets.filter((market) => market?.platform === "Polymarket"), thesis, keywords),
+    Kalshi: sortMarketsByRelevance(markets.filter((market) => market?.platform === "Kalshi"), thesis, keywords),
+    Manifold: sortMarketsByRelevance(markets.filter((market) => market?.platform === "Manifold"), thesis, keywords),
+  };
+
+  const selected = [];
+  const seen = new Set();
+  const platforms = ["Polymarket", "Kalshi", "Manifold"];
+
+  while (selected.length < limit) {
+    let added = false;
+
+    for (const platform of platforms) {
+      const nextMarket = byPlatform[platform].shift();
+      if (!nextMarket || seen.has(nextMarket.id)) continue;
+      selected.push(nextMarket);
+      seen.add(nextMarket.id);
+      added = true;
+
+      if (selected.length >= limit) {
+        break;
+      }
+    }
+
+    if (!added) {
+      break;
+    }
+  }
+
+  if (selected.length < limit) {
+    const remaining = sortMarketsByRelevance(markets, thesis, keywords);
+    for (const market of remaining) {
+      if (seen.has(market.id)) continue;
+      selected.push(market);
+      seen.add(market.id);
+      if (selected.length >= limit) break;
+    }
+  }
+
+  return selected;
+}
+
 // --- Agent 2: Search Polymarket for relevant markets ---
 async function searchPolymarket(keywords) {
   const allMarkets = [];
@@ -392,7 +510,7 @@ async function searchPolymarket(keywords) {
         "https://gamma-api.polymarket.com/markets",
         {
           params: {
-            _limit: 10,
+            _limit: POLYMARKET_SEARCH_LIMIT,
             closed: false,
             active: true,
             _q: keyword,
@@ -600,15 +718,123 @@ function normalizeSuggestedPosition(value) {
   return normalized === "NO" ? "NO" : "YES";
 }
 
+function buildMarketUrl(platform, slug, original) {
+  if (platform === "Polymarket" && slug) {
+    return `https://polymarket.com/event/${slug}`;
+  }
+
+  if (platform === "Kalshi" && slug) {
+    return `https://kalshi.com/markets/${slug}`;
+  }
+
+  if (platform === "Manifold") {
+    return original?.url || (slug ? `https://manifold.markets/${slug}` : null);
+  }
+
+  return null;
+}
+
+function hydrateRankedPick(rankedPick, markets) {
+  const original = markets.find((market) => market.id === rankedPick.id);
+  const platform = rankedPick.platform || original?.platform || "Polymarket";
+  const suggestedPosition = normalizeSuggestedPosition(rankedPick.suggested_position);
+  const { yesOdds, noOdds } = extractYesNoOdds(original || {});
+  const llmCurrentPrice = normalizeProbability(rankedPick.current_price);
+  const resolvedCurrentPrice =
+    llmCurrentPrice ?? (suggestedPosition === "YES" ? yesOdds : noOdds);
+
+  return {
+    ...rankedPick,
+    platform,
+    suggested_position: suggestedPosition,
+    current_price: resolvedCurrentPrice,
+    yes_odds: yesOdds,
+    no_odds: noOdds,
+    image: original?.image || null,
+    volume: original?.volume || null,
+    liquidity: original?.liquidity || null,
+    endDate: original?.endDate || null,
+    marketUrl: buildMarketUrl(platform, rankedPick.slug, original),
+  };
+}
+
+function scoreExistingPick(pick, markets, thesis, keywords = []) {
+  const original = markets.find((market) => market.id === pick?.id);
+  const localRelevance = scoreMarketRelevance(thesis, original || pick, keywords);
+  const llmRelevance = Math.max(0, Math.min(10, toFiniteNumber(pick?.relevance_score, 0)));
+
+  return {
+    ...pick,
+    _localRelevance: localRelevance,
+    _combinedRelevance: localRelevance + llmRelevance / 5,
+  };
+}
+
+function stripInternalPickFields(pick) {
+  if (!pick || typeof pick !== "object") return pick;
+
+  const { _localRelevance, _combinedRelevance, ...cleaned } = pick;
+  return cleaned;
+}
+
+function balanceRankedPicks(picks, markets, thesis, keywords = [], limit = 5) {
+  const uniquePicks = [];
+  const seen = new Set();
+
+  for (const pick of picks) {
+    if (!pick?.id || seen.has(pick.id)) continue;
+    uniquePicks.push(scoreExistingPick(pick, markets, thesis, keywords));
+    seen.add(pick.id);
+  }
+
+  const validatedPicks = uniquePicks
+    .filter((pick) => pick._localRelevance >= MIN_VALIDATED_PICK_RELEVANCE)
+    .sort((left, right) => right._combinedRelevance - left._combinedRelevance);
+
+  const rejectedPicks = uniquePicks.filter((pick) => pick._localRelevance < MIN_VALIDATED_PICK_RELEVANCE);
+  if (rejectedPicks.length > 0) {
+    console.log(
+      `    Rejected ${rejectedPicks.length} weak ranked picks: ${rejectedPicks
+        .slice(0, 3)
+        .map((pick) => `"${pick.question}" (${pick.platform}, ${pick._localRelevance.toFixed(2)})`)
+        .join(", ")}`
+    );
+  }
+  const result = [];
+  const usedIds = new Set();
+  const platformCounts = Object.fromEntries(["Polymarket", "Kalshi", "Manifold"].map((platform) => [platform, 0]));
+  const maxPerPlatform = 2;
+
+  for (const pick of validatedPicks) {
+    const platform = pick.platform || "Polymarket";
+    if ((platformCounts[platform] || 0) >= maxPerPlatform) continue;
+
+    result.push(pick);
+    usedIds.add(pick.id);
+    platformCounts[platform] = (platformCounts[platform] || 0) + 1;
+  }
+
+  return result
+    .sort((left, right) => (right._combinedRelevance || 0) - (left._combinedRelevance || 0))
+    .slice(0, limit)
+    .map(stripInternalPickFields);
+}
+
 // --- Agent 3: Rank and explain picks ---
-async function rankMarkets(thesis, markets, thesisHistory = []) {
+async function rankMarkets(thesis, markets, thesisHistory = [], keywords = []) {
   if (markets.length === 0) {
     return [];
   }
 
   const historyContext = formatThesisHistoryContext(thesisHistory);
+  const rankingCandidates = selectMarketsForRanking(markets, thesis, keywords, 24);
+  console.log(
+    `    Ranking candidates: ${rankingCandidates.filter((market) => market.platform === "Polymarket").length} Polymarket, ` +
+    `${rankingCandidates.filter((market) => market.platform === "Kalshi").length} Kalshi, ` +
+    `${rankingCandidates.filter((market) => market.platform === "Manifold").length} Manifold`
+  );
 
-  const marketSummaries = markets.slice(0, 20).map((m) => ({
+  const marketSummaries = rankingCandidates.map((m) => ({
     id: m.id,
     question: m.question,
     description: (m.description || "").slice(0, 200),
@@ -623,44 +849,15 @@ async function rankMarkets(thesis, markets, thesisHistory = []) {
   }));
 
   const text = await geminiCall(
-    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nHere are prediction markets from Polymarket, Kalshi, and Manifold:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant markets. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug", "platform". Return ONLY a JSON array.`
+    `You are Backboard, an expert prediction-market analyst. A user has the following market thesis:\n\n"${thesis}"${historyContext}\n\nSearch keywords used:\n${JSON.stringify(keywords, null, 2)}\n\nHere are prediction markets from Polymarket, Kalshi, and Manifold:\n${JSON.stringify(marketSummaries, null, 2)}\n\nSelect the top 5 most relevant REAL markets. Balance the output across platforms: include Polymarket, Kalshi, and Manifold whenever relevant candidates from those platforms are present. Do not over-index on Polymarket volume. Avoid weak or generic matches that only loosely connect to the thesis. For each, return a JSON object with: "id", "question", "relevance_score" (1-10), "suggested_position" ("YES" or "NO"), "current_price", "one_liner" (single sentence why it fits), "slug", "platform". Return ONLY a JSON array.`
   );
 
   const match = text.match(/\[[\s\S]*\]/);
   if (match) {
     try {
       const ranked = JSON.parse(match[0]);
-      // Merge image data back in
-      return ranked.map((r) => {
-        const original = markets.find((m) => m.id === r.id);
-        const platform = r.platform || original?.platform || 'Polymarket';
-        const suggestedPosition = normalizeSuggestedPosition(r.suggested_position);
-        const { yesOdds, noOdds } = extractYesNoOdds(original || {});
-        const llmCurrentPrice = normalizeProbability(r.current_price);
-        const resolvedCurrentPrice =
-          llmCurrentPrice ?? (suggestedPosition === "YES" ? yesOdds : noOdds);
-        let marketUrl = null;
-        if (platform === 'Polymarket' && r.slug) {
-          marketUrl = `https://polymarket.com/event/${r.slug}`;
-        } else if (platform === 'Kalshi' && r.slug) {
-          marketUrl = `https://kalshi.com/markets/${r.slug}`;
-        } else if (platform === 'Manifold') {
-          marketUrl = original?.url || `https://manifold.markets/${r.slug}`;
-        }
-        return {
-          ...r,
-          platform,
-          suggested_position: suggestedPosition,
-          current_price: resolvedCurrentPrice,
-          yes_odds: yesOdds,
-          no_odds: noOdds,
-          image: original?.image || null,
-          volume: original?.volume || null,
-          liquidity: original?.liquidity || null,
-          endDate: original?.endDate || null,
-          marketUrl,
-        };
-      });
+      const hydrated = ranked.map((entry) => hydrateRankedPick(entry, markets));
+      return balanceRankedPicks(hydrated, markets, thesis, keywords);
     } catch (e) {
       console.error("Failed to parse ranked markets:", e.message);
     }
@@ -1100,15 +1297,15 @@ app.post("/api/analyze", async (req, res) => {
     let rankingStrategy = "gemini";
 
     try {
-      picks = await rankMarkets(thesis, markets, thesisHistory);
+      picks = await rankMarkets(thesis, markets, thesisHistory, keywords);
       if (!Array.isArray(picks) || picks.length === 0) {
-        rankingStrategy = "fallback";
-        picks = fallbackRankMarkets(markets, thesis);
+        rankingStrategy = "gemini_empty";
+        picks = [];
       }
     } catch (rankingError) {
-      rankingStrategy = "fallback";
-      picks = fallbackRankMarkets(markets, thesis);
-      console.error("    Ranking failed, using fallback:", rankingError.message);
+      rankingStrategy = "gemini_failed";
+      picks = [];
+      console.error("    Ranking failed, returning no picks:", rankingError.message);
     }
 
     console.log(`    Returned ${picks.length} picks (${rankingStrategy})`);
@@ -1172,7 +1369,7 @@ app.get("/api/polymarket/trending", async (req, res) => {
   try {
     const response = await axios.get("https://gamma-api.polymarket.com/markets", {
       params: {
-        _limit: 20,
+        _limit: POLYMARKET_TRENDING_LIMIT,
         closed: false,
         active: true,
         _sort: "volume",
