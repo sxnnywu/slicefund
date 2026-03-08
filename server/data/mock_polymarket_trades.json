@@ -216,6 +216,7 @@
     "createdAt": "2026-03-07T22:51:49.789Z"
   },
   {
+<<<<<<< HEAD
     "id": "pm-1772936846523-22a7c220",
     "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
     "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
@@ -227,16 +228,38 @@
     "status": "FILLED",
     "filledSize": 33.33333333333333,
     "avgPrice": 0.1605,
+=======
+    "id": "pm-1772940522244-a0a64e9f",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "Nwk9MXN3lFtk8qe6Jw64Jxyq+ZpaRU1YrcBqY/WxQ7c+Q4IjmGDNPWCNMVP6uamsmISUwbIY9bs04IvfbxnlBw==",
+    "market": "BitBoy convicted?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.163,
+    "size": 33.33333333333333,
+    "status": "FILLED",
+    "filledSize": 33.33333333333333,
+    "avgPrice": 0.163,
+>>>>>>> f0958af87aa00113618736e480784aa774f88898
     "source": "mock_basket_buy",
     "metadata": {
       "target_weight": 0.3333333333333333
     },
+<<<<<<< HEAD
     "createdAt": "2026-03-08T02:27:26.523Z"
   },
   {
     "id": "pm-1772936846523-2cbdc874",
     "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
     "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
+=======
+    "createdAt": "2026-03-08T03:28:42.244Z"
+  },
+  {
+    "id": "pm-1772940522244-a7f81238",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "Nwk9MXN3lFtk8qe6Jw64Jxyq+ZpaRU1YrcBqY/WxQ7c+Q4IjmGDNPWCNMVP6uamsmISUwbIY9bs04IvfbxnlBw==",
+>>>>>>> f0958af87aa00113618736e480784aa774f88898
     "market": "Russia-Ukraine Ceasefire before GTA VI?",
     "platform": "Polymarket",
     "side": "BUY",
@@ -249,12 +272,21 @@
     "metadata": {
       "target_weight": 0.3333333333333333
     },
+<<<<<<< HEAD
     "createdAt": "2026-03-08T02:27:26.523Z"
   },
   {
     "id": "pm-1772936846523-7dd456f1",
     "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
     "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
+=======
+    "createdAt": "2026-03-08T03:28:42.244Z"
+  },
+  {
+    "id": "pm-1772940522244-4c7fee63",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "Nwk9MXN3lFtk8qe6Jw64Jxyq+ZpaRU1YrcBqY/WxQ7c+Q4IjmGDNPWCNMVP6uamsmISUwbIY9bs04IvfbxnlBw==",
+>>>>>>> f0958af87aa00113618736e480784aa774f88898
     "market": "New Rihanna Album before GTA VI?",
     "platform": "Polymarket",
     "side": "BUY",
@@ -267,6 +299,10 @@
     "metadata": {
       "target_weight": 0.3333333333333333
     },
+<<<<<<< HEAD
     "createdAt": "2026-03-08T02:27:26.523Z"
+=======
+    "createdAt": "2026-03-08T03:28:42.244Z"
+>>>>>>> f0958af87aa00113618736e480784aa774f88898
   }
 ]

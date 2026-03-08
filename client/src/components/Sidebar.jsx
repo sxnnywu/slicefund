@@ -6,12 +6,10 @@ const NAV = [
   { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
   { id: "baskets", label: "My Baskets", icon: "📈" },
   { id: "markets", label: "All Markets", icon: "📊" },
-  { id: "trades", label: "Trades", icon: "🧾" },
 ];
 const TOOLS = [
   { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },
   { id: "index", label: "Index Builder", icon: "⊞" },
-  { id: "cards", label: "Cards", icon: "⚑" },
 ];
 
 export default function Sidebar({ activePanel, onNavigate }) {

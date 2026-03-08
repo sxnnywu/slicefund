@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 import Sidebar from "../components/Sidebar.jsx";
 import ThesisCard from "../components/ThesisCard.jsx";
@@ -11,15 +11,27 @@ import PanelBaskets from "../panels/PanelBaskets.jsx";
 import PanelMarkets from "../panels/PanelMarkets.jsx";
 import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
-import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
-import PanelTrades from "../panels/PanelTrades.jsx";
 import PanelKalshi from "../panels/PanelKalshi.jsx";
 import PanelManifold from "../panels/PanelManifold.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
 
 const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
+const ACTIVE_PANEL_KEY = "slicefund_active_panel";
+const VALID_PANELS = new Set([
+  "home",
+  "thesis",
+  "polymarket",
+  "kalshi",
+  "manifold",
+  "baskets",
+  "markets",
+  "arb",
+  "index",
+  "profile",
+  "trades",
+]);
 const ANALYZE_PROGRESS_STEPS = [
   "Agent 1: Parsing thesis into search keywords",
   "Agent 2: Searching Polymarket, Kalshi, and Manifold",
@@ -178,9 +190,21 @@ function loadStoredSearches() {
   }
 }
 
+function loadStoredPanel() {
+  if (typeof window === "undefined") return "home";
+
+  try {
+    const panel = localStorage.getItem(ACTIVE_PANEL_KEY);
+    return VALID_PANELS.has(panel) ? panel : "home";
+  } catch (error) {
+    console.error("Failed to load active panel:", error);
+    return "home";
+  }
+}
+
 export default function Dashboard() {
   const { user } = useAuth0();
-  const [panel, setPanel] = useState("home");
+  const [panel, setPanel] = useState(() => loadStoredPanel());
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -209,6 +233,16 @@ export default function Dashboard() {
       console.error("Failed to persist thesis history:", saveError);
     }
   }, [searches]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.setItem(ACTIVE_PANEL_KEY, panel);
+    } catch (saveError) {
+      console.error("Failed to persist active panel:", saveError);
+    }
+  }, [panel]);
 
   useEffect(() => () => {
     if (analyzeProgressTimerRef.current) {
@@ -260,7 +294,7 @@ export default function Dashboard() {
     ? rawFirstName.charAt(0).toUpperCase() + rawFirstName.slice(1)
     : "there";
 
-  const stopAnalyzeProgress = (reset = true) => {
+  const stopAnalyzeProgress = useCallback((reset = true) => {
     if (analyzeProgressTimerRef.current) {
       clearInterval(analyzeProgressTimerRef.current);
       analyzeProgressTimerRef.current = null;
@@ -269,9 +303,9 @@ export default function Dashboard() {
     if (reset) {
       setAnalyzeStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startAnalyzeProgress = () => {
+  const startAnalyzeProgress = useCallback(() => {
     stopAnalyzeProgress(false);
 
     let nextStep = 0;
@@ -287,9 +321,9 @@ export default function Dashboard() {
 
       setAnalyzeStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopAnalyzeProgress]);
 
-  const stopArbProgress = (reset = true) => {
+  const stopArbProgress = useCallback((reset = true) => {
     if (arbProgressTimerRef.current) {
       clearInterval(arbProgressTimerRef.current);
       arbProgressTimerRef.current = null;
@@ -298,9 +332,9 @@ export default function Dashboard() {
     if (reset) {
       setArbStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startArbProgress = () => {
+  const startArbProgress = useCallback(() => {
     stopArbProgress(false);
 
     let nextStep = 0;
@@ -316,9 +350,9 @@ export default function Dashboard() {
 
       setArbStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopArbProgress]);
 
-  const stopRebalanceProgress = (reset = true) => {
+  const stopRebalanceProgress = useCallback((reset = true) => {
     if (rebalanceProgressTimerRef.current) {
       clearInterval(rebalanceProgressTimerRef.current);
       rebalanceProgressTimerRef.current = null;
@@ -327,9 +361,9 @@ export default function Dashboard() {
     if (reset) {
       setRebalanceStepIndex(-1);
     }
-  };
+  }, []);
 
-  const startRebalanceProgress = () => {
+  const startRebalanceProgress = useCallback(() => {
     stopRebalanceProgress(false);
 
     let nextStep = 0;
@@ -345,7 +379,7 @@ export default function Dashboard() {
 
       setRebalanceStepIndex(nextStep);
     }, 1600);
-  };
+  }, [stopRebalanceProgress]);
 
   const analyzeProgress = loading
     ? {
@@ -426,12 +460,10 @@ export default function Dashboard() {
         return <PanelArb progress={arbProgress} onStartProgress={startArbProgress} onStopProgress={stopArbProgress} />;
       case "index":
         return <PanelIndex />;
-      case "cards":
-        return <PanelCards searches={searches} />;
       case "profile":
         return <PanelProfile />;
       case "trades":
-        return <PanelTrades />;
+        return <PanelMarkets />;
       default:
         return (
           <>

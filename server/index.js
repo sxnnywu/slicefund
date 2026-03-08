@@ -136,12 +136,7 @@ app.use((req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
-const GEMINI_MODEL_CANDIDATES = [
-  "gemini-2.0-flash-lite",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-flash-latest",
-];
+const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 
 function isGeminiPermanentFailure(message) {
   const normalized = String(message || "").toLowerCase();
@@ -278,13 +273,10 @@ async function fetchKalshiMarkets(params = {}) {
 }
 
 // --- Helper: call Gemini with retry ---
-async function geminiCall(prompt, retries = GEMINI_MODEL_CANDIDATES.length) {
+async function geminiCall(prompt, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const modelName = GEMINI_MODEL_CANDIDATES[
-        Math.min(i, GEMINI_MODEL_CANDIDATES.length - 1)
-      ];
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_NAME });
       const result = await model.generateContent(prompt);
       return result.response.text().trim();
     } catch (err) {
@@ -1368,6 +1360,23 @@ app.get("/api/markets/:platform/:id/related", async (req, res) => {
 });
 
 // Scanner endpoint: validates arb opportunity and formats as alert card
+function withTimeout(promise, ms, label) {
+  let timeoutId;
+  const timeoutPromise = new Promise((_, reject) => {
+    timeoutId = setTimeout(() => {
+      reject(new Error(`${label} timed out after ${ms}ms`));
+    }, ms);
+  });
+
+  return Promise.race([promise, timeoutPromise]).finally(() => clearTimeout(timeoutId));
+}
+
+const ARB_SCANNER_TIMEOUT_MS = 3000;
+const ARB_DISPATCHER_TIMEOUT_MS = 1200;
+const ARB_GEMINI_TIMEOUT_MS = 9000;
+const ENABLE_ARB_DISPATCHER_ENRICH = process.env.ARB_SCAN_USE_DISPATCHER === "1";
+const ENABLE_ARB_GEMINI_FALLBACK = process.env.ARB_SCAN_GEMINI_FALLBACK === "1";
+
 app.post("/api/scan", async (req, res) => {
   try {
     const { question, platformA, priceA, platformB, priceB } = req.body;
@@ -1390,9 +1399,42 @@ app.post("/api/scan", async (req, res) => {
     console.log(`[/api/scan] Analyzing: "${question}"`);
     console.log(`  ${platformA} @ ${leftPrice} vs ${platformB} @ ${rightPrice}`);
 
+    const buildHeuristicAlert = (summary, source = "heuristic_fallback") => {
+      const spread = Math.abs(rightPrice - leftPrice);
+      const adjustedSpread = Math.max(0, spread - 0.02);
+      const confidence = Math.min(0.85, Math.max(0.35, 0.45 + Math.min(spread, 0.25)));
+      const decision = adjustedSpread >= 0.03 ? "CONFIRMED" : "REJECTED";
+      const urgency = adjustedSpread >= 0.1 ? "HIGH" : adjustedSpread >= 0.05 ? "MEDIUM" : "LOW";
+      const titleWords = question.split(" ").slice(0, 8).join(" ");
+      const title = titleWords.length > 1 ? titleWords : question.slice(0, 50);
+
+      return {
+        id: `scan-${Date.now()}`,
+        decision,
+        title,
+        summary,
+        platforms: [platformA, platformB],
+        spread,
+        adjusted_spread: adjustedSpread,
+        confidence,
+        priceA: leftPrice,
+        priceB: rightPrice,
+        question,
+        actions: defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice),
+        urgency,
+        risk_flags: ["heuristic_fallback"],
+        source,
+        timestamp: new Date().toISOString(),
+      };
+    };
+
     try {
       const scannerMessage = `Raw alert: ${platformA} YES @ ${leftPrice}, ${platformB} YES @ ${rightPrice}, question: ${question}. Return ONLY valid JSON with keys: decision (CONFIRMED/REJECTED), spread (number), reasoning (string), confidence (number 0..1). No markdown.`;
-      const scannerResponse = await validateArbitrage(scannerMessage);
+      const scannerResponse = await withTimeout(
+        validateArbitrage(scannerMessage),
+        ARB_SCANNER_TIMEOUT_MS,
+        "ArbitrageScanner"
+      );
       const scannerPayload = parseAgentPayload(scannerResponse?.content);
 
       if (!scannerPayload || typeof scannerPayload !== "object") {
@@ -1414,106 +1456,154 @@ app.post("/api/scan", async (req, res) => {
         `  → ArbitrageScanner: ${scannerDecision}, Spread: ${scannerSpread}, Confidence: ${scannerConfidence}`
       );
 
-      const dispatchMessage = `Trade analysis: decision: ${scannerDecision}, ${platformA} YES @ ${leftPrice}, ${platformB} YES @ ${rightPrice}, question: ${question}, spread: ${scannerSpread}, confidence: ${scannerConfidence}, reasoning: ${scannerReasoning}. Return ONLY valid JSON with keys: decision (CONFIRMED/REJECTED), title, summary, platforms (array of 2 strings), spread (number), confidence (number 0..1), actions (array of {platform, action BUY/SELL}), urgency (LOW/MEDIUM/HIGH), risk_flags (array of strings). No markdown.`;
-      const dispatcherResponse = await dispatchArbitrageAlert(dispatchMessage);
-      const dispatcherPayload = parseAgentPayload(dispatcherResponse?.content);
+      const titleWords = question.split(" ").slice(0, 8).join(" ");
+      const defaultTitle = titleWords.length > 1 ? titleWords : question.slice(0, 50);
+      const defaultUrgency =
+        scannerSpread >= 0.12 && scannerConfidence >= 0.55
+          ? "HIGH"
+          : scannerSpread >= 0.07 && scannerConfidence >= 0.45
+            ? "MEDIUM"
+            : "LOW";
 
-      if (!dispatcherPayload || typeof dispatcherPayload !== "object") {
-        throw new Error("AlertDispatcher returned unparseable output");
+      const baseAlert = {
+        id: `scan-${Date.now()}`,
+        decision: scannerDecision,
+        title: defaultTitle,
+        summary: scannerReasoning,
+        platforms: [platformA, platformB],
+        spread: scannerSpread,
+        adjusted_spread: Math.max(0, scannerSpread - 0.02),
+        confidence: scannerConfidence,
+        priceA: leftPrice,
+        priceB: rightPrice,
+        question,
+        actions: defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice),
+        urgency: defaultUrgency,
+        risk_flags: Array.isArray(scannerPayload.risk_flags)
+          ? scannerPayload.risk_flags.filter((flag) => typeof flag === "string" && flag.trim().length > 0)
+          : [],
+        source: "agents_scanner",
+        timestamp: new Date().toISOString(),
+      };
+
+      if (!ENABLE_ARB_DISPATCHER_ENRICH) {
+        console.log(`  ✓ Scanner formatted: ${baseAlert.decision} ${baseAlert.title}`);
+        return res.json(baseAlert);
       }
 
-      const decision = normalizeDecision(dispatcherPayload.decision, scannerDecision);
-      const spread = toFiniteNumber(dispatcherPayload.spread, scannerSpread);
-      const confidence = clampConfidence(dispatcherPayload.confidence, scannerConfidence);
-      const titleWords = question.split(" ").slice(0, 8).join(" ");
-      const title =
-        typeof dispatcherPayload.title === "string" && dispatcherPayload.title.trim().length > 0
-          ? dispatcherPayload.title.trim()
-          : titleWords.length > 1
-            ? titleWords
-            : question.slice(0, 50);
-      const summary =
-        typeof dispatcherPayload.summary === "string" && dispatcherPayload.summary.trim().length > 0
-          ? dispatcherPayload.summary.trim()
-          : scannerReasoning;
-      const platforms = normalizePlatforms(dispatcherPayload.platforms, platformA, platformB);
-      const actions = normalizeActions(
-        dispatcherPayload.actions,
-        platformA,
-        platformB,
-        leftPrice,
-        rightPrice
+      const dispatchMessage = `Trade analysis: decision: ${scannerDecision}, ${platformA} YES @ ${leftPrice}, ${platformB} YES @ ${rightPrice}, question: ${question}, spread: ${scannerSpread}, confidence: ${scannerConfidence}, reasoning: ${scannerReasoning}. Return ONLY valid JSON with keys: decision (CONFIRMED/REJECTED), title, summary, platforms (array of 2 strings), spread (number), confidence (number 0..1), actions (array of {platform, action BUY/SELL}), urgency (LOW/MEDIUM/HIGH), risk_flags (array of strings). No markdown.`;
+      try {
+        const dispatcherResponse = await withTimeout(
+          dispatchArbitrageAlert(dispatchMessage),
+          ARB_DISPATCHER_TIMEOUT_MS,
+          "AlertDispatcher"
+        );
+        const dispatcherPayload = parseAgentPayload(dispatcherResponse?.content);
+
+        if (!dispatcherPayload || typeof dispatcherPayload !== "object") {
+          throw new Error("AlertDispatcher returned unparseable output");
+        }
+
+        const alert = {
+          ...baseAlert,
+          decision: normalizeDecision(dispatcherPayload.decision, baseAlert.decision),
+          title:
+            typeof dispatcherPayload.title === "string" && dispatcherPayload.title.trim().length > 0
+              ? dispatcherPayload.title.trim()
+              : baseAlert.title,
+          summary:
+            typeof dispatcherPayload.summary === "string" && dispatcherPayload.summary.trim().length > 0
+              ? dispatcherPayload.summary.trim()
+              : baseAlert.summary,
+          platforms: normalizePlatforms(dispatcherPayload.platforms, platformA, platformB),
+          spread: toFiniteNumber(dispatcherPayload.spread, baseAlert.spread),
+          adjusted_spread: toFiniteNumber(dispatcherPayload.adjusted_spread, baseAlert.adjusted_spread),
+          confidence: clampConfidence(dispatcherPayload.confidence, baseAlert.confidence),
+          actions: normalizeActions(
+            dispatcherPayload.actions,
+            platformA,
+            platformB,
+            leftPrice,
+            rightPrice
+          ),
+          urgency: normalizeUrgency(dispatcherPayload.urgency, baseAlert.urgency),
+          risk_flags: Array.isArray(dispatcherPayload.risk_flags)
+            ? dispatcherPayload.risk_flags.filter((flag) => typeof flag === "string" && flag.trim().length > 0)
+            : baseAlert.risk_flags,
+          source: "agents_dispatcher",
+        };
+
+        console.log(`  ✓ Dispatcher enriched: ${alert.decision} ${alert.title}`);
+        return res.json(alert);
+      } catch (dispatcherError) {
+        console.error(`  ! Dispatcher enrich skipped: ${dispatcherError.message}`);
+        console.log(`  ✓ Scanner formatted: ${baseAlert.decision} ${baseAlert.title}`);
+        return res.json(baseAlert);
+      }
+    } catch (agentChainError) {
+      console.error(`  ! Agent chain failed, using Gemini fallback: ${agentChainError.message}`);
+
+      if (!ENABLE_ARB_GEMINI_FALLBACK) {
+        const quickAlert = buildHeuristicAlert(
+          "Scanner unavailable. Returning fast heuristic score.",
+          "heuristic_scanner_unavailable"
+        );
+        console.log(`  ✓ Heuristic fallback formatted: ${quickAlert.decision} ${quickAlert.title}`);
+        return res.json(quickAlert);
+      }
+    }
+
+    // Fallback: Gemini scorer
+    try {
+      const score = await withTimeout(
+        scoreArbOpportunity(
+          question,
+          platformA,
+          leftPrice,
+          platformB,
+          rightPrice
+        ),
+        ARB_GEMINI_TIMEOUT_MS,
+        "GeminiArbScorer"
       );
-      const urgency = normalizeUrgency(dispatcherPayload.urgency, "MEDIUM");
-      const riskFlags = Array.isArray(dispatcherPayload.risk_flags)
-        ? dispatcherPayload.risk_flags.filter(
-            (flag) => typeof flag === "string" && flag.trim().length > 0
-          )
-        : [];
+
+      console.log(`  → Gemini fallback: ${score.decision}, Spread: ${score.spread}, Confidence: ${score.confidence}`);
+
+      const decision = score.decision === "EXPLOIT" ? "CONFIRMED" : "REJECTED";
+      const titleWords = question.split(" ").slice(0, 8).join(" ");
+      const title = titleWords.length > 1 ? titleWords : question.slice(0, 50);
 
       const alert = {
         id: `scan-${Date.now()}`,
         decision,
         title,
-        summary,
-        platforms,
-        spread,
-        adjusted_spread: toFiniteNumber(dispatcherPayload.adjusted_spread, null),
-        confidence,
+        summary: score.reasoning || "Market opportunity detected.",
+        platforms: [platformA, platformB],
+        spread: score.spread,
+        adjusted_spread: score.adjusted_spread,
+        confidence: score.confidence,
         priceA: leftPrice,
         priceB: rightPrice,
         question,
-        actions,
-        urgency,
-        risk_flags: riskFlags,
-        source: "agents",
+        actions: defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice),
+        urgency: score.urgency || "MEDIUM",
+        risk_flags: score.risk_flags || [],
+        source: "gemini_fallback",
         timestamp: new Date().toISOString(),
       };
 
-      console.log(`  ✓ AlertDispatcher formatted: ${alert.decision} ${alert.title}`);
+      console.log(`  ✓ Fallback alert formatted: ${alert.decision} ${alert.title}`);
 
       return res.json(alert);
-    } catch (agentChainError) {
-      console.error(`  ! Agent chain failed, using Gemini fallback: ${agentChainError.message}`);
+    } catch (fallbackError) {
+      console.error(`  ! Gemini fallback failed: ${fallbackError.message}`);
+      const quickAlert = buildHeuristicAlert(
+        "Gemini fallback unavailable. Returning fast heuristic score.",
+        "heuristic_gemini_unavailable"
+      );
+      console.log(`  ✓ Heuristic fallback formatted: ${quickAlert.decision} ${quickAlert.title}`);
+      return res.json(quickAlert);
     }
-
-    // Fallback: Gemini scorer
-    const score = await scoreArbOpportunity(
-      question,
-      platformA,
-      leftPrice,
-      platformB,
-      rightPrice
-    );
-
-    console.log(`  → Gemini fallback: ${score.decision}, Spread: ${score.spread}, Confidence: ${score.confidence}`);
-
-    const decision = score.decision === "EXPLOIT" ? "CONFIRMED" : "REJECTED";
-    const titleWords = question.split(" ").slice(0, 8).join(" ");
-    const title = titleWords.length > 1 ? titleWords : question.slice(0, 50);
-
-    const alert = {
-      id: `scan-${Date.now()}`,
-      decision,
-      title,
-      summary: score.reasoning || "Market opportunity detected.",
-      platforms: [platformA, platformB],
-      spread: score.spread,
-      adjusted_spread: score.adjusted_spread,
-      confidence: score.confidence,
-      priceA: leftPrice,
-      priceB: rightPrice,
-      question,
-      actions: defaultActionsForSpread(platformA, platformB, leftPrice, rightPrice),
-      urgency: score.urgency || "MEDIUM",
-      risk_flags: score.risk_flags || [],
-      source: "gemini_fallback",
-      timestamp: new Date().toISOString(),
-    };
-
-    console.log(`  ✓ Fallback alert formatted: ${alert.decision} ${alert.title}`);
-
-    res.json(alert);
   } catch (err) {
     console.error("Scan error:", err.message);
     res.status(500).json({ error: "Scan failed", details: err.message });
