@@ -52,5 +52,167 @@
       "target_weight": 0.3
     },
     "createdAt": "2026-03-07T20:18:17.527Z"
+  },
+  {
+    "id": "pm-1772923904690-fac1b9f5",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will Trump impose 25%+ tariffs on Canada in 2025",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.42,
+    "size": 40,
+    "status": "FILLED",
+    "filledSize": 40,
+    "avgPrice": 0.42,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.4
+    },
+    "createdAt": "2026-03-07T22:51:44.690Z"
+  },
+  {
+    "id": "pm-1772923904690-3ded3c57",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will US-Canada trade volume drop >10% in 2025",
+    "platform": "Kalshi",
+    "side": "BUY",
+    "price": 0.28,
+    "size": 30,
+    "status": "FILLED",
+    "filledSize": 30,
+    "avgPrice": 0.28,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3
+    },
+    "createdAt": "2026-03-07T22:51:44.690Z"
+  },
+  {
+    "id": "pm-1772923904690-1e1b70ee",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will Canadian auto exports to US fall in Q1 2025",
+    "platform": "Manifold",
+    "side": "BUY",
+    "price": 0.3,
+    "size": 30,
+    "status": "FILLED",
+    "filledSize": 30,
+    "avgPrice": 0.3,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3
+    },
+    "createdAt": "2026-03-07T22:51:44.690Z"
+  },
+  {
+    "id": "pm-1772923906180-22d6e6bf",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will EU AI Act enforcement begin before Q4 2025",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.45,
+    "size": 40,
+    "status": "FILLED",
+    "filledSize": 40,
+    "avgPrice": 0.45,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.4
+    },
+    "createdAt": "2026-03-07T22:51:46.180Z"
+  },
+  {
+    "id": "pm-1772923906180-f001db35",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will US Congress pass an AI liability bill in 2025",
+    "platform": "Kalshi",
+    "side": "BUY",
+    "price": 0.3,
+    "size": 35,
+    "status": "FILLED",
+    "filledSize": 35,
+    "avgPrice": 0.3,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.35
+    },
+    "createdAt": "2026-03-07T22:51:46.180Z"
+  },
+  {
+    "id": "pm-1772923906180-07dc5817",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will OpenAI face major regulatory action in 2025",
+    "platform": "Manifold",
+    "side": "BUY",
+    "price": 0.25,
+    "size": 25,
+    "status": "FILLED",
+    "filledSize": 25,
+    "avgPrice": 0.25,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.25
+    },
+    "createdAt": "2026-03-07T22:51:46.180Z"
+  },
+  {
+    "id": "pm-1772923909789-6b442d9b",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will EU AI Act enforcement begin before Q4 2025",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.45,
+    "size": 40,
+    "status": "FILLED",
+    "filledSize": 40,
+    "avgPrice": 0.45,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.4
+    },
+    "createdAt": "2026-03-07T22:51:49.789Z"
+  },
+  {
+    "id": "pm-1772923909789-a6b8e342",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will US Congress pass an AI liability bill in 2025",
+    "platform": "Kalshi",
+    "side": "BUY",
+    "price": 0.3,
+    "size": 35,
+    "status": "FILLED",
+    "filledSize": 35,
+    "avgPrice": 0.3,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.35
+    },
+    "createdAt": "2026-03-07T22:51:49.789Z"
+  },
+  {
+    "id": "pm-1772923909789-9c439a74",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will OpenAI face major regulatory action in 2025",
+    "platform": "Manifold",
+    "side": "BUY",
+    "price": 0.25,
+    "size": 25,
+    "status": "FILLED",
+    "filledSize": 25,
+    "avgPrice": 0.25,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.25
+    },
+    "createdAt": "2026-03-07T22:51:49.789Z"
   }
 ]

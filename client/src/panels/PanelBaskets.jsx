@@ -202,7 +202,7 @@ async function checkRebalance(basket) {
 }
 
 export default function PanelBaskets({ progress, onStartProgress, onStopProgress }) {
-  const { wallet, walletAddress } = usePhantom();
+  const { wallet, walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
   const [liveBaskets, setLiveBaskets] = useState([]);
   const [customBaskets, setCustomBaskets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -214,6 +214,10 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
   const [isChecking, setIsChecking] = useState(false);
   const [isExecuting, setIsExecuting] = useState(false);
   const [executionResult, setExecutionResult] = useState(null);
+  const [isBuying, setIsBuying] = useState(false);
+  const [buyingName, setBuyingName] = useState(null);
+  const [buyStatus, setBuyStatus] = useState(null);
+  const [buyError, setBuyError] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -362,11 +366,6 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
   };
 
   const handleExecuteRebalance = async () => {
-    if (!wallet || !walletAddress) {
-      setExecutionResult({ status: "error", message: "Wallet not connected" });
-      return;
-    }
-
     if (!selectedBasket || proposedTrades.length === 0) {
       setExecutionResult({ status: "error", message: "No rebalance to execute" });
       return;
@@ -376,24 +375,50 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
     setExecutionResult(null);
 
     try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      if (!activeWallet) {
+        throw new Error("Wallet not connected");
+      }
+
+      const payload = {
+        type: "basket_execute",
+        basket: selectedBasket.name,
+        markets: selectedBasket.markets.map((m) => m.market),
+        timestamp: new Date().toISOString(),
+      };
+
+      let signature = `mock-sig-${Date.now()}`;
+      if (activeWallet && typeof signMessage === "function") {
+        try {
+          const signed = await signMessage(JSON.stringify(payload), activeWallet);
+          signature = signed?.signature || signature;
+        } catch {
+          // Fall back to mock signature when wallet signing is unavailable.
+        }
+      }
+
       const response = await fetch("/api/mock/polymarket/execute-basket", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           basket: selectedBasket.markets,
-          walletAddress,
-          solanaSignature: `mock-sig-${Date.now()}`,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
           notional: 100,
         }),
       });
 
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error?.error || "Execution failed");
+        const payloadError = await response.json().catch(() => null);
+        throw new Error(payloadError?.error || payloadError?.message || "Execution failed");
       }
 
       const result = await response.json();
-      
       setExecutionResult({
         status: "success",
         message: `✓ Rebalance executed! ${result.count} trades placed`,
@@ -409,6 +434,63 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
     }
   };
 
+  const handleBuy = async (basket) => {
+    if (!basket) return;
+    setIsBuying(true);
+    setBuyingName(basket.name);
+    setBuyStatus(null);
+    setBuyError(null);
+
+    try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      const payload = {
+        type: "basket_buy",
+        basket: basket.name,
+        markets: basket.markets.map((m) => m.market),
+        timestamp: new Date().toISOString(),
+      };
+
+      let signature = `mock-buy-sig-${Date.now()}`;
+      if (activeWallet && typeof signMessage === "function") {
+        try {
+          const signed = await signMessage(JSON.stringify(payload), activeWallet);
+          signature = signed?.signature || signature;
+        } catch {
+          // Fall back to mock signature when wallet signing is unavailable.
+        }
+      }
+
+      const response = await fetch("/api/mock/polymarket/buy-basket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: basket.markets,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
+          notional: 100,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Basket buy failed");
+      }
+
+      const result = await response.json();
+      setBuyStatus(`Bought ${result.count} mock positions`);
+      setSelectedBasket(basket);
+    } catch (err) {
+      setBuyError(err.message || "Basket buy failed");
+    } finally {
+      setIsBuying(false);
+      setBuyingName(null);
+    }
+  };
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 36 }}>
@@ -477,6 +559,16 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           <div style={s.action}>Live data only</div>
         </div>
 
+        {phantomInstalled === false && (
+          <div style={s.notice}>Connect Phantom to sign mock basket trades.</div>
+        )}
+        {buyStatus && (
+          <div style={s.success}>{buyStatus}</div>
+        )}
+        {buyError && (
+          <div style={s.error}>{buyError}</div>
+        )}
+
         {!loading && baskets.length === 0 && (
           <div style={s.empty}>No baskets available yet.</div>
         )}
@@ -492,6 +584,13 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
               <div style={s.odds}>{typeof basket.odds === "number" ? `${basket.odds}¢` : "—"}</div>
               <div style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600 }}>{basket.yield}</div>
             </div>
+            <button
+              onClick={() => handleBuy(basket)}
+              disabled={isBuying}
+              style={{ ...s.buyBtn, opacity: isBuying ? 0.6 : 1 }}
+            >
+              {isBuying && buyingName === basket.name ? "Buying..." : "Buy"}
+            </button>
             <button
               onClick={() => handleCheckRebalance(basket)}
               disabled={isChecking}
@@ -619,7 +718,6 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
               )}
             </div>
           )}
-
           {proposedTrades.length > 0 && selectedBasket?.markets?.some((market) => market.marketUrl) && (
             <div style={s.linksRow}>
               {selectedBasket.markets
@@ -662,6 +760,17 @@ const s = {
   q: { fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   meta: { fontSize: 10, fontWeight: 600, letterSpacing: 1, color: "var(--text-dim)", fontFamily: "'DM Mono',monospace", marginTop: 3 },
   odds: { fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--blue)" },
+  buyBtn: {
+    padding: "8px 14px",
+    background: "var(--green)",
+    border: "none",
+    borderRadius: 8,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#fff",
+    cursor: "pointer",
+  },
   checkBtn: {
     padding: "8px 14px",
     background: "none",
@@ -673,6 +782,19 @@ const s = {
     color: "var(--blue)",
     cursor: "pointer",
   },
+  execBtn: {
+    padding: "8px 14px",
+    background: "var(--green)",
+    border: "none",
+    borderRadius: 8,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#fff",
+    cursor: "pointer",
+  },
+  notice: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--text-dim)", fontSize: 12 },
+  success: { background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--green)", fontSize: 12 },
   error: { background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14 },
   empty: { padding: "24px", textAlign: "center", fontSize: 13, color: "var(--text-dim)" },
   agentResponse: {
