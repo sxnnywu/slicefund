@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from "react";
+import usePhantom from "../hooks/usePhantom.js";
 
 function getDecisionStyles(decision) {
   if (decision === "CONFIRMED") {
@@ -194,6 +195,10 @@ export default function PanelArb() {
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState(null);
   const [lastScanTime, setLastScanTime] = useState(null);
+  const [executingId, setExecutingId] = useState(null);
+  const [execStatus, setExecStatus] = useState(null);
+  const [execError, setExecError] = useState(null);
+  const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
 
   const runScans = useCallback(async () => {
     setIsScanning(true);
@@ -233,6 +238,59 @@ export default function PanelArb() {
       setIsScanning(false);
     }
   }, []);
+
+  const handleExecute = useCallback(async (alert) => {
+    if (!alert) return;
+    setExecutingId(alert.id);
+    setExecStatus(null);
+    setExecError(null);
+
+    try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      const payload = {
+        type: "arb_execute",
+        alertId: alert.id,
+        question: alert.question || alert.title,
+        platforms: alert.platforms,
+        actions: alert.actions,
+        priceA: alert.priceA,
+        priceB: alert.priceB,
+        timestamp: new Date().toISOString(),
+      };
+
+      const signature = activeWallet
+        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
+        : null;
+
+      const response = await fetch("/api/mock/polymarket/execute-arb", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          alert,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
+          metadata: { payload },
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Execution failed");
+      }
+
+      const result = await response.json();
+      setExecStatus(`Executed ${result.count} mock legs`);
+    } catch (err) {
+      setExecError(err.message || "Execution failed");
+    } finally {
+      setExecutingId(null);
+    }
+  }, [connect, signMessage, walletAddress]);
 
   useEffect(() => {
     runScans();
@@ -278,6 +336,16 @@ export default function PanelArb() {
             {isScanning ? "Scanning..." : "Scan now"}
           </button>
         </div>
+
+        {phantomInstalled === false && (
+          <div style={s.notice}>Connect Phantom to sign mock trades.</div>
+        )}
+        {execStatus && (
+          <div style={s.success}>{execStatus}</div>
+        )}
+        {execError && (
+          <div style={s.error}>{execError}</div>
+        )}
 
         {error && (
           <div style={s.error}>{error}</div>
@@ -346,6 +414,15 @@ export default function PanelArb() {
                 {arb.urlB && (
                   <a href={arb.urlB} target="_blank" rel="noopener noreferrer" style={s.linkBtn}>Open B ↗</a>
                 )}
+                {arb.decision === "CONFIRMED" && (
+                  <button
+                    style={s.execBtn}
+                    onClick={() => handleExecute(arb)}
+                    disabled={executingId === arb.id}
+                  >
+                    {executingId === arb.id ? "Executing..." : "Execute (Mock)"}
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -371,6 +448,35 @@ const s = {
     fontWeight: 600,
     color: "var(--blue)",
     cursor: "pointer",
+  },
+  execBtn: {
+    padding: "7px 10px",
+    borderRadius: 8,
+    border: "none",
+    background: "var(--green)",
+    color: "#fff",
+    fontSize: 11,
+    fontWeight: 700,
+    cursor: "pointer",
+    fontFamily: "'Outfit',sans-serif",
+  },
+  notice: {
+    padding: "12px 14px",
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    color: "var(--text-dim)",
+    fontSize: 12,
+    marginBottom: 12,
+    background: "var(--surface)",
+  },
+  success: {
+    padding: "12px 14px",
+    borderRadius: 10,
+    border: "1px solid rgba(0,196,140,0.2)",
+    color: "var(--green)",
+    fontSize: 12,
+    marginBottom: 12,
+    background: "var(--green-light)",
   },
   error: {
     padding: "12px 14px",

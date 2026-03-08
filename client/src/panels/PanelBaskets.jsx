@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import usePhantom from "../hooks/usePhantom.js";
 
 const STORAGE_KEY = "slicefund_baskets";
 
@@ -209,6 +210,14 @@ export default function PanelBaskets() {
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [rebalanceData, setRebalanceData] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [execStatus, setExecStatus] = useState(null);
+  const [execError, setExecError] = useState(null);
+  const [isBuying, setIsBuying] = useState(false);
+  const [buyingName, setBuyingName] = useState(null);
+  const [buyStatus, setBuyStatus] = useState(null);
+  const [buyError, setBuyError] = useState(null);
+  const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
 
   useEffect(() => {
     const load = async () => {
@@ -262,6 +271,107 @@ export default function PanelBaskets() {
     setIsChecking(false);
   };
 
+  const handleExecute = async () => {
+    if (!selectedBasket) return;
+    setIsExecuting(true);
+    setExecStatus(null);
+    setExecError(null);
+
+    try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      const payload = {
+        type: "basket_execute",
+        basket: selectedBasket.name,
+        markets: selectedBasket.markets.map((m) => m.market),
+        timestamp: new Date().toISOString(),
+      };
+
+      const signature = activeWallet
+        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
+        : null;
+
+      const response = await fetch("/api/mock/polymarket/execute-basket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: selectedBasket.markets,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
+          notional: 100,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Execution failed");
+      }
+
+      const result = await response.json();
+      setExecStatus(`Executed ${result.count} mock trades`);
+    } catch (err) {
+      setExecError(err.message || "Execution failed");
+    } finally {
+      setIsExecuting(false);
+    }
+  };
+
+  const handleBuy = async (basket) => {
+    if (!basket) return;
+    setIsBuying(true);
+    setBuyingName(basket.name);
+    setBuyStatus(null);
+    setBuyError(null);
+
+    try {
+      let activeWallet = walletAddress;
+      if (!activeWallet) {
+        const connected = await connect();
+        activeWallet = connected?.toString?.() || walletAddress;
+      }
+
+      const payload = {
+        type: "basket_buy",
+        basket: basket.name,
+        markets: basket.markets.map((m) => m.market),
+        timestamp: new Date().toISOString(),
+      };
+
+      const signature = activeWallet
+        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
+        : null;
+
+      const response = await fetch("/api/mock/polymarket/buy-basket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: basket.markets,
+          walletAddress: activeWallet,
+          solanaSignature: signature,
+          notional: 100,
+        }),
+      });
+
+      if (!response.ok) {
+        const message = await response.text();
+        throw new Error(message || "Basket buy failed");
+      }
+
+      const result = await response.json();
+      setBuyStatus(`Bought ${result.count} mock positions`);
+      setSelectedBasket(basket);
+    } catch (err) {
+      setBuyError(err.message || "Basket buy failed");
+    } finally {
+      setIsBuying(false);
+      setBuyingName(null);
+    }
+  };
+
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 36 }}>
@@ -296,6 +406,16 @@ export default function PanelBaskets() {
           <div style={s.action}>Live data only</div>
         </div>
 
+        {phantomInstalled === false && (
+          <div style={s.notice}>Connect Phantom to sign mock basket trades.</div>
+        )}
+        {buyStatus && (
+          <div style={s.success}>{buyStatus}</div>
+        )}
+        {buyError && (
+          <div style={s.error}>{buyError}</div>
+        )}
+
         {!loading && baskets.length === 0 && (
           <div style={s.empty}>No baskets available yet.</div>
         )}
@@ -312,6 +432,13 @@ export default function PanelBaskets() {
               <div style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600 }}>{basket.yield}</div>
             </div>
             <button
+              onClick={() => handleBuy(basket)}
+              disabled={isBuying}
+              style={{ ...s.buyBtn, opacity: isBuying ? 0.6 : 1 }}
+            >
+              {isBuying && buyingName === basket.name ? "Buying..." : "Buy"}
+            </button>
+            <button
               onClick={() => handleCheckRebalance(basket)}
               disabled={isChecking}
               style={{ ...s.checkBtn, opacity: isChecking ? 0.6 : 1 }}
@@ -327,8 +454,23 @@ export default function PanelBaskets() {
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>
             🤖 Rebalancer Analysis: {selectedBasket?.name}
           </div>
+          {execStatus && (
+            <div style={s.success}>{execStatus}</div>
+          )}
+          {execError && (
+            <div style={s.error}>{execError}</div>
+          )}
           <div style={s.agentResponse}>
             {rebalanceData.rebalanceAnalysis?.content || "No analysis available"}
+          </div>
+          <div style={{ marginTop: 16, display: "flex", gap: 10, flexWrap: "wrap" }}>
+            <button
+              style={s.execBtn}
+              onClick={handleExecute}
+              disabled={isExecuting}
+            >
+              {isExecuting ? "Executing..." : "Execute Basket (Mock)"}
+            </button>
           </div>
           {selectedBasket?.markets?.some((market) => market.marketUrl) && (
             <div style={s.linksRow}>
@@ -372,6 +514,17 @@ const s = {
   q: { fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   meta: { fontSize: 10, fontWeight: 600, letterSpacing: 1, color: "var(--text-dim)", fontFamily: "'DM Mono',monospace", marginTop: 3 },
   odds: { fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--blue)" },
+  buyBtn: {
+    padding: "8px 14px",
+    background: "var(--green)",
+    border: "none",
+    borderRadius: 8,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#fff",
+    cursor: "pointer",
+  },
   checkBtn: {
     padding: "8px 14px",
     background: "none",
@@ -383,6 +536,19 @@ const s = {
     color: "var(--blue)",
     cursor: "pointer",
   },
+  execBtn: {
+    padding: "8px 14px",
+    background: "var(--green)",
+    border: "none",
+    borderRadius: 8,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 12,
+    fontWeight: 700,
+    color: "#fff",
+    cursor: "pointer",
+  },
+  notice: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--text-dim)", fontSize: 12 },
+  success: { background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--green)", fontSize: 12 },
   error: { background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14 },
   empty: { padding: "24px", textAlign: "center", fontSize: 13, color: "var(--text-dim)" },
   agentResponse: {
