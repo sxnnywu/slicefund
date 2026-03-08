@@ -13,7 +13,6 @@ import PanelArb from "../panels/PanelArb.jsx";
 import PanelIndex from "../panels/PanelIndex.jsx";
 import PanelCards from "../panels/PanelCards.jsx";
 import PanelPolymarket from "../panels/PanelPolymarket.jsx";
-import PanelTrades from "../panels/PanelTrades.jsx";
 import PanelKalshi from "../panels/PanelKalshi.jsx";
 import PanelManifold from "../panels/PanelManifold.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
@@ -431,7 +430,7 @@ export default function Dashboard() {
       case "profile":
         return <PanelProfile />;
       case "trades":
-        return <PanelTrades />;
+        return <PanelMarkets />;
       default:
         return (
           <>

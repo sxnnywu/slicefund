@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import usePhantom from "../hooks/usePhantom.js";
 
 const STORAGE_KEY = "slicefund_baskets";
 
@@ -201,6 +202,7 @@ async function checkRebalance(basket) {
 }
 
 export default function PanelBaskets({ progress, onStartProgress, onStopProgress }) {
+  const { wallet, walletAddress } = usePhantom();
   const [liveBaskets, setLiveBaskets] = useState([]);
   const [customBaskets, setCustomBaskets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -208,7 +210,10 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
 
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [rebalanceData, setRebalanceData] = useState(null);
+  const [proposedTrades, setProposedTrades] = useState([]);
   const [isChecking, setIsChecking] = useState(false);
+  const [isExecuting, setIsExecuting] = useState(false);
+  const [executionResult, setExecutionResult] = useState(null);
 
   useEffect(() => {
     const load = async () => {
@@ -260,8 +265,148 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
     if (onStartProgress) onStartProgress();
     const data = await checkRebalance(basket);
     setRebalanceData(data);
+    setExecutionResult(null);
+    
+    // Extract proposed trades from rebalance data
+    const trades = extractProposedTrades(data, basket);
+    setProposedTrades(trades);
+    
     setIsChecking(false);
     if (onStopProgress) onStopProgress();
+  };
+
+  const extractProposedTrades = (data, basket) => {
+    if (!data?.rebalanceAnalysis?.content) {
+      // Fallback: suggest trades based on drift from all markets
+      if (!Array.isArray(basket?.markets)) return [];
+      
+      return basket.markets.map(market => {
+        const drift = Math.abs(market.current_weight - (market.target_weight || 0.5));
+        if (drift < 0.05) return null; // Skip if minimal drift
+        
+        const action = market.current_weight > (market.target_weight || 0.5) ? "SELL" : "BUY";
+        return {
+          market: market.market || market.question || "Market",
+          platform: market.platform || "Polymarket",
+          action,
+          currentWeight: market.current_weight || 0,
+          targetWeight: market.target_weight || 0.5,
+          drift: (drift * 100).toFixed(1),
+        };
+      }).filter(Boolean);
+    }
+    
+    const analysisText = data.rebalanceAnalysis.content;
+    const trades = [];
+    
+    // For each market in the basket, infer action from analysis text
+    if (Array.isArray(basket?.markets)) {
+      for (const market of basket.markets) {
+        const marketName = market.market || market.question;
+        const lowerAnalysis = analysisText.toLowerCase();
+        const marketLower = marketName.toLowerCase().slice(0, 30); // Match first 30 chars
+        
+        // Simple heuristic: look for increase/decrease keywords near market name
+        const idx = lowerAnalysis.indexOf(marketLower);
+        const marketSection = idx >= 0 
+          ? lowerAnalysis.substring(Math.max(0, idx - 100), Math.min(lowerAnalysis.length, idx + 200))
+          : "";
+        
+        const increaseKeywords = ["increase", "buy", "add", "boost", "strengthen", "go long"];
+        const decreaseKeywords = ["decrease", "sell", "reduce", "lower", "cut", "trim"];
+        
+        const hasIncrease = increaseKeywords.some(kw => marketSection.includes(kw));
+        const hasDecrease = decreaseKeywords.some(kw => marketSection.includes(kw));
+        
+        const action = hasIncrease ? "BUY" : hasDecrease ? "SELL" : null;
+        
+        if (action) {
+          trades.push({
+            market: marketName,
+            platform: market.platform || "Polymarket",
+            action,
+            currentWeight: market.current_weight || 0,
+            targetWeight: market.target_weight || 0.5,
+          });
+        }
+      }
+    }
+    
+    // If no trades extracted from keywords, generate from drift
+    if (trades.length === 0 && Array.isArray(basket?.markets)) {
+      return basket.markets.map(market => {
+        const drift = Math.abs(market.current_weight - (market.target_weight || 0.5));
+        if (drift < 0.05) return null;
+        
+        const action = market.current_weight > (market.target_weight || 0.5) ? "SELL" : "BUY";
+        return {
+          market: market.market || market.question || "Market",
+          platform: market.platform || "Polymarket",
+          action,
+          currentWeight: market.current_weight || 0,
+          targetWeight: market.target_weight || 0.5,
+          drift: (drift * 100).toFixed(1),
+        };
+      }).filter(Boolean);
+    }
+    
+    return trades;
+  };
+
+  const formatAnalysisText = (text) => {
+    if (!text) return [];
+    
+    // Split by common delimiters and format as bullet points
+    const lines = text.split(/[\n•\-]/).filter(line => line.trim().length > 0);
+    return lines.slice(0, 5); // Show max 5 key points
+  };
+
+  const handleExecuteRebalance = async () => {
+    if (!wallet || !walletAddress) {
+      setExecutionResult({ status: "error", message: "Wallet not connected" });
+      return;
+    }
+
+    if (!selectedBasket || proposedTrades.length === 0) {
+      setExecutionResult({ status: "error", message: "No rebalance to execute" });
+      return;
+    }
+
+    setIsExecuting(true);
+    setExecutionResult(null);
+
+    try {
+      const response = await fetch("/api/mock/polymarket/execute-basket", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          basket: selectedBasket.markets,
+          walletAddress,
+          solanaSignature: `mock-sig-${Date.now()}`,
+          notional: 100,
+        }),
+      });
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error?.error || "Execution failed");
+      }
+
+      const result = await response.json();
+      
+      setExecutionResult({
+        status: "success",
+        message: `✓ Rebalance executed! ${result.count} trades placed`,
+        trades: result.trades,
+      });
+    } catch (err) {
+      setExecutionResult({
+        status: "error",
+        message: err.message || "Failed to execute rebalance",
+      });
+    } finally {
+      setIsExecuting(false);
+    }
   };
 
   return (
@@ -358,18 +503,127 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         ))}
       </div>
 
+      {isChecking && progress?.steps && (
+        <div style={s.progressWrap}>
+          <div style={s.progressTitle}>Analyzing Rebalance...</div>
+          <div style={s.progressRow}>
+            {progress.steps.map((step, idx) => (
+              <div key={idx} style={s.progressItem}>
+                <div
+                  style={{
+                    ...s.progressDot,
+                    ...(idx < progress.currentStep
+                      ? s.progressDotDone
+                      : idx === progress.currentStep
+                      ? s.progressDotActive
+                      : s.progressDotIdle),
+                  }}
+                >
+                  {idx < progress.currentStep ? "✓" : idx === progress.currentStep ? "⟳" : String(idx + 1)}
+                </div>
+                <div
+                  style={{
+                    ...s.progressText,
+                    ...(idx <= progress.currentStep ? s.progressTextActive : s.progressTextIdle),
+                  }}
+                >
+                  {step}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       {rebalanceData && (
         <div style={s.card}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>
             🤖 Rebalancer Analysis: {selectedBasket?.name}
           </div>
-          <div style={s.agentResponse}>
-            {rebalanceData.rebalanceAnalysis?.content || "No analysis available"}
+          <div style={s.analysisWrap}>
+            <div style={s.analysisLabel}>Key Insights</div>
+            <div style={s.insightsList}>
+              {formatAnalysisText(rebalanceData.rebalanceAnalysis?.content).map((insight, idx) => (
+                <div key={idx} style={s.insightItem}>
+                  <span style={s.insightDot}>→</span>
+                  <span>{insight.trim()}</span>
+                </div>
+              ))}
+            </div>
           </div>
-          {selectedBasket?.markets?.some((market) => market.marketUrl) && (
+
+          {proposedTrades.length > 0 && !executionResult && (
+            <div style={{ ...s.tradesWrap, marginTop: 20 }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>Proposed Trades</div>
+              <div style={s.tradesList}>
+                {proposedTrades.map((trade, idx) => (
+                  <div key={idx} style={s.tradeRow}>
+                    <div style={{ flex: 1 }}>
+                      <div style={s.tradeMarket}>{trade.market}</div>
+                      <div style={s.tradePlatform}>{trade.platform}</div>
+                    </div>
+                    <div style={{ textAlign: "right" }}>
+                      <div style={{
+                        ...s.tradeAction,
+                        color: trade.action === "BUY" ? "var(--green)" : "var(--red)",
+                      }}>
+                        {trade.action}
+                      </div>
+                      <div style={s.tradeWeight}>
+                        {(trade.currentWeight * 100).toFixed(0)}¢ → {(trade.targetWeight * 100).toFixed(0)}¢
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              {wallet && (
+                <button
+                  onClick={handleExecuteRebalance}
+                  disabled={isExecuting}
+                  style={{
+                    ...s.executeBtn,
+                    opacity: isExecuting ? 0.6 : 1,
+                    cursor: isExecuting ? "default" : "pointer",
+                  }}
+                >
+                  {isExecuting ? "Executing..." : "Execute Rebalance"}
+                </button>
+              )}
+              {!wallet && (
+                <div style={s.walletPrompt}>Connect wallet to execute rebalance</div>
+              )}
+            </div>
+          )}
+
+          {executionResult && (
+            <div style={{
+              ...s.executionResult,
+              ...(executionResult.status === "success" ? s.executionSuccess : s.executionError),
+            }}>
+              <div style={{ fontSize: 13, fontWeight: 700, marginBottom: 12 }}>
+                {executionResult.message}
+              </div>
+              {executionResult.trades && (
+                <div style={s.executedTradesList}>
+                  {executionResult.trades.slice(0, 3).map((trade, idx) => (
+                    <div key={idx} style={{ fontSize: 12, color: "var(--text-mid)", marginBottom: 6 }}>
+                      {trade.side} {(trade.size || 0).toFixed(2)} @ {(trade.price * 100).toFixed(0)}¢
+                    </div>
+                  ))}
+                  {executionResult.trades.length > 3 && (
+                    <div style={{ fontSize: 12, color: "var(--text-dim)" }}>
+                      +{executionResult.trades.length - 3} more trades
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
+          {proposedTrades.length > 0 && selectedBasket?.markets?.some((market) => market.marketUrl) && (
             <div style={s.linksRow}>
               {selectedBasket.markets
-                .filter((market) => market.marketUrl)
+                .filter((market) => market.marketUrl && proposedTrades.some(t => t.market === (market.market || market.question)))
                 .slice(0, 3)
                 .map((market, index) => (
                   <a key={`${market.market}-${index}`} href={market.marketUrl} target="_blank" rel="noopener noreferrer" style={s.linkBtn}>
@@ -510,5 +764,122 @@ const s = {
   },
   progressTextIdle: {
     color: "var(--text-dim)",
+  },
+  tradesWrap: {
+    background: "rgba(26,92,255,0.08)",
+    border: "1px solid rgba(26,92,255,0.2)",
+    borderRadius: 12,
+    padding: "16px 18px",
+  },
+  tradesList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+    marginBottom: 14,
+  },
+  tradeRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: "10px 12px",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 8,
+  },
+  tradeMarket: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+  },
+  tradePlatform: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    marginTop: 3,
+  },
+  tradeAction: {
+    fontSize: 13,
+    fontWeight: 700,
+    fontFamily: "'DM Mono',monospace",
+    marginBottom: 4,
+  },
+  tradeWeight: {
+    fontSize: 10,
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono',monospace",
+  },
+  executeBtn: {
+    width: "100%",
+    padding: "12px 16px",
+    background: "var(--blue)",
+    color: "#fff",
+    border: "none",
+    borderRadius: 10,
+    fontFamily: "'Outfit',sans-serif",
+    fontSize: 13,
+    fontWeight: 700,
+    cursor: "pointer",
+    transition: "all 0.2s",
+  },
+  walletPrompt: {
+    fontSize: 12,
+    color: "var(--text-dim)",
+    textAlign: "center",
+    padding: "12px",
+    background: "rgba(255,255,255,0.02)",
+    borderRadius: 8,
+  },
+  executionResult: {
+    borderRadius: 12,
+    padding: "14px 16px",
+    marginTop: 14,
+  },
+  executionSuccess: {
+    background: "rgba(0,196,140,0.08)",
+    border: "1px solid rgba(0,196,140,0.2)",
+    color: "var(--green)",
+  },
+  executionError: {
+    background: "rgba(255,77,106,0.08)",
+    border: "1px solid rgba(255,77,106,0.2)",
+    color: "var(--red)",
+  },
+  analysisWrap: {
+    background: "rgba(26,92,255,0.08)",
+    border: "1px solid rgba(26,92,255,0.2)",
+    borderRadius: 12,
+    padding: "16px 18px",
+    marginBottom: 14,
+  },
+  analysisLabel: {
+    fontSize: 12,
+    fontWeight: 700,
+    color: "var(--text)",
+    marginBottom: 12,
+    letterSpacing: 0.5,
+  },
+  insightsList: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 8,
+  },
+  insightItem: {
+    fontSize: 13,
+    lineHeight: 1.4,
+    color: "var(--text)",
+    display: "flex",
+    gap: 10,
+    alignItems: "flex-start",
+  },
+  insightDot: {
+    color: "var(--blue)",
+    fontWeight: 700,
+    flexShrink: 0,
+    marginTop: 2,
+  },
+  executedTradesList: {
+    fontSize: 12,
+    background: "var(--surface)",
+    padding: "10px 12px",
+    borderRadius: 8,
   },
 };
