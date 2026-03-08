@@ -448,6 +448,10 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         activeWallet = connected?.toString?.() || walletAddress;
       }
 
+      if (!activeWallet) {
+        throw new Error("Wallet not connected");
+      }
+
       const payload = {
         type: "basket_buy",
         basket: basket.name,
@@ -501,40 +505,6 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           </p>
         </div>
       </div>
-
-      {isChecking && progress?.steps && (
-        <div style={s.progressWrap}>
-          <div style={s.progressTitle}>AI Agent Progress</div>
-          <div style={s.progressRow}>
-            {progress.steps.map((step, index) => (
-              <div key={index} style={s.progressItem}>
-                <div
-                  style={{
-                    ...s.progressDot,
-                    ...(index < progress.currentStep
-                      ? s.progressDotDone
-                      : index === progress.currentStep
-                        ? s.progressDotActive
-                        : s.progressDotIdle),
-                  }}
-                >
-                  {index < progress.currentStep ? "✓" : index === progress.currentStep ? "⟳" : index + 1}
-                </div>
-                <div
-                  style={{
-                    ...s.progressText,
-                    ...(index <= progress.currentStep
-                      ? s.progressTextActive
-                      : s.progressTextIdle),
-                  }}
-                >
-                  {step}
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
 
       <div style={s.statRow}>
         {[
@@ -782,30 +752,10 @@ const s = {
     color: "var(--blue)",
     cursor: "pointer",
   },
-  execBtn: {
-    padding: "8px 14px",
-    background: "var(--green)",
-    border: "none",
-    borderRadius: 8,
-    fontFamily: "'Outfit',sans-serif",
-    fontSize: 12,
-    fontWeight: 700,
-    color: "#fff",
-    cursor: "pointer",
-  },
   notice: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--text-dim)", fontSize: 12 },
   success: { background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--green)", fontSize: 12 },
   error: { background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14 },
   empty: { padding: "24px", textAlign: "center", fontSize: 13, color: "var(--text-dim)" },
-  agentResponse: {
-    background: "var(--blue-light)",
-    border: "1px solid rgba(26,92,255,0.2)",
-    borderRadius: 12,
-    padding: "16px 18px",
-    fontSize: 13,
-    lineHeight: 1.6,
-    whiteSpace: "pre-wrap",
-  },
   linksRow: {
     marginTop: 14,
     display: "flex",
