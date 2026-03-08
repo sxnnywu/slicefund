@@ -137,6 +137,9 @@ app.use((req, res, next) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
+const GEMINI_MIN_GAP_MS = 2500;
+let nextGeminiRequestAt = 0;
+let geminiRequestChain = Promise.resolve();
 
 function isGeminiPermanentFailure(message) {
   const normalized = String(message || "").toLowerCase();
@@ -273,8 +276,36 @@ async function fetchKalshiMarkets(params = {}) {
 }
 
 // --- Helper: call Gemini with retry ---
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scheduleGeminiRequest() {
+  const previous = geminiRequestChain;
+  let release;
+  geminiRequestChain = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  const now = Date.now();
+  const delay = Math.max(0, nextGeminiRequestAt - now);
+  if (delay > 0) {
+    console.log(`    Gemini throttle: waiting ${Math.ceil(delay / 1000)}s before next request...`);
+    await wait(delay);
+  }
+
+  nextGeminiRequestAt = Date.now() + GEMINI_MIN_GAP_MS;
+
+  return () => {
+    release();
+  };
+}
+
 async function geminiCall(prompt, retries = 3) {
   for (let i = 0; i < retries; i++) {
+    const release = await scheduleGeminiRequest();
     try {
       const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_NAME });
       const result = await model.generateContent(prompt);
@@ -292,10 +323,12 @@ async function geminiCall(prompt, retries = 3) {
       if (shouldRetry) {
         const wait = (i + 1) * 3000; // 3s, 6s
         console.log(`    Gemini request failed (${message.includes("404") ? "model unavailable" : "rate limited"}), waiting ${wait / 1000}s...`);
-        await new Promise((r) => setTimeout(r, wait));
+        nextGeminiRequestAt = Math.max(nextGeminiRequestAt, Date.now() + wait);
       } else {
         throw err;
       }
+    } finally {
+      release();
     }
   }
 }
