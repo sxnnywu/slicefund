@@ -1030,29 +1030,52 @@ app.post("/api/analyze", async (req, res) => {
 // Direct Polymarket browse endpoint (no AI needed)
 app.get("/api/polymarket/trending", async (req, res) => {
   try {
-    const response = await axios.get("https://gamma-api.polymarket.com/markets", {
-      params: {
-        _limit: 20,
-        closed: false,
-        active: true,
-        _sort: "volume",
-        _order: "desc",
-      },
-      timeout: 10000,
-    });
-    const markets = (response.data || []).map((m) => ({
-      id: m.id,
-      question: m.question,
-      slug: m.slug,
-      outcomePrices: m.outcomePrices,
-      outcomes: m.outcomes,
-      volume: m.volume,
-      liquidity: m.liquidity,
-      endDate: m.endDate,
-      image: m.image,
-      description: (m.description || "").slice(0, 300),
-    }));
-    res.json({ markets, count: markets.length });
+    const limit = parseInt(req.query._limit) || 100;
+
+    // Polymarket Gamma API has a max of 100 per request
+    // To get 500, we need to make 5 requests with offset pagination
+    const maxPerRequest = 100;
+    const numRequests = Math.ceil(Math.min(limit, 500) / maxPerRequest);
+
+    const requests = [];
+    for (let i = 0; i < numRequests; i++) {
+      requests.push(
+        axios.get("https://gamma-api.polymarket.com/markets", {
+          params: {
+            limit: maxPerRequest,
+            _limit: maxPerRequest,
+            offset: i * maxPerRequest,
+            closed: false,
+            active: true,
+            _sort: "volume",
+            _order: "desc",
+          },
+          timeout: 15000,
+        })
+      );
+    }
+
+    const responses = await Promise.all(requests);
+    const allMarkets = responses.flatMap(response =>
+      (response.data || []).map((m) => ({
+        id: m.id,
+        question: m.question,
+        slug: m.slug,
+        outcomePrices: m.outcomePrices,
+        outcomes: m.outcomes,
+        volume: m.volume,
+        liquidity: m.liquidity,
+        endDate: m.endDate,
+        image: m.image,
+        description: (m.description || "").slice(0, 300),
+      }))
+    );
+
+    // Remove duplicates
+    const uniqueMarkets = Array.from(new Map(allMarkets.map(m => [m.id, m])).values());
+
+    console.log(`[Polymarket] Requested ${limit}, got ${uniqueMarkets.length} markets`);
+    res.json({ markets: uniqueMarkets, count: uniqueMarkets.length });
   } catch (err) {
     console.error("Polymarket fetch error:", err.message);
     res.status(500).json({ error: "Failed to fetch from Polymarket", details: err.message });
@@ -1087,7 +1110,8 @@ app.get("/api/polymarket/search", async (req, res) => {
 // Kalshi markets endpoints
 app.get("/api/kalshi/trending", async (req, res) => {
   try {
-    const markets = await fetchKalshiMarkets({ limit: 1000 });
+    const limit = parseInt(req.query.limit) || 20;
+    const markets = await fetchKalshiMarkets({ limit: 2000 }); // Fetch more to ensure we have enough
 
     // Prefer markets with real trading activity, then fall back to quoted books.
     markets.sort((a, b) => {
@@ -1097,8 +1121,9 @@ app.get("/api/kalshi/trending", async (req, res) => {
     });
 
     const activeMarkets = markets.filter((market) => (market.volume || 0) > 0 || (market.openInterest || 0) > 0);
-    const topMarkets = (activeMarkets.length > 0 ? activeMarkets : markets).slice(0, 20);
+    const topMarkets = (activeMarkets.length > 0 ? activeMarkets : markets).slice(0, limit);
 
+    console.log(`[Kalshi] Requested ${limit}, got ${topMarkets.length} markets`);
     res.json({ markets: topMarkets, count: topMarkets.length });
   } catch (err) {
     console.error("Kalshi fetch error:", err.message);
@@ -1128,14 +1153,17 @@ app.get("/api/kalshi/search", async (req, res) => {
 
 app.get("/api/manifold/trending", async (req, res) => {
   try {
+    const limit = parseInt(req.query.limit) || 100;
+    const apiLimit = Math.min(limit * 2, 500); // Fetch more to account for filtering
+
     const response = await axios.get("https://api.manifold.markets/v0/markets", {
       params: {
-        limit: 100,
+        limit: apiLimit,
       },
       timeout: 10000,
     });
-    
-    // Filter out resolved markets and sort by liquidity
+
+    // Filter out resolved markets and sort by volume + liquidity
     const markets = (response.data || [])
       .filter((m) => !m.isResolved && m.closeTime > Date.now())
       .map((m) => ({
@@ -1150,9 +1178,14 @@ app.get("/api/manifold/trending", async (req, res) => {
         creatorName: m.creatorName,
         creatorUsername: m.creatorUsername,
       }))
-      .sort((a, b) => b.liquidity - a.liquidity)
-      .slice(0, 20);
-    
+      .sort((a, b) => {
+        // Sort by volume + liquidity for "big bets"
+        const scoreA = (a.volume || 0) + (a.liquidity || 0);
+        const scoreB = (b.volume || 0) + (b.liquidity || 0);
+        return scoreB - scoreA;
+      })
+      .slice(0, limit);
+
     res.json({ markets, count: markets.length });
   } catch (err) {
     console.error("Manifold fetch error:", err.message);
@@ -2049,6 +2082,53 @@ app.get("/api/agents/history", async (req, res) => {
       error: "Failed to retrieve agent history",
       details,
     });
+  }
+});
+
+// AI-powered question similarity check
+app.post("/api/arb/verify-similarity", async (req, res) => {
+  const { questionA, questionB } = req.body;
+  if (!questionA || !questionB) {
+    return res.status(400).json({ error: "questionA and questionB required" });
+  }
+
+  try {
+    const geminiKey = process.env.GEMINI_API_KEY;
+    if (!geminiKey) {
+      return res.json({ same: null, confidence: 0, reasoning: "No Gemini API key" });
+    }
+
+    const genAI = new GoogleGenerativeAI(geminiKey);
+    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-lite" });
+
+    const prompt = `You are a prediction market analyst. Determine if these two questions are asking about the SAME real-world event/outcome (just worded differently), or if they are about DIFFERENT things.
+
+Question A: "${questionA}"
+Question B: "${questionB}"
+
+Rules:
+- "Will Italy qualify for the 2026 FIFA World Cup?" and "Will Italy make it to the 2026 World Cup?" = SAME (same country, same event, same action)
+- "Will Italy qualify for the 2026 FIFA World Cup?" and "Will a previous winner win the 2026 FIFA World Cup?" = DIFFERENT (different subjects — Italy vs previous winner)
+- "Will Italy qualify for the 2026 FIFA World Cup?" and "Will I get into MCSP 2026?" = DIFFERENT (completely unrelated)
+- "Fairfield at Siena Winner?" and "Will a previous winner of the World Cup win?" = DIFFERENT (college sports vs World Cup)
+- "Will Trump win the 2024 election?" and "Trump 2024 election winner" = SAME
+
+Return ONLY a JSON object: {"same": true/false, "confidence": 0.0-1.0, "reasoning": "one sentence"}`;
+
+    const result = await model.generateContent(prompt);
+    const text = result.response.text().trim();
+    const jsonMatch = text.match(/\{[\s\S]*\}/);
+
+    if (jsonMatch) {
+      const parsed = JSON.parse(jsonMatch[0]);
+      console.log(`[verify-similarity] "${questionA.slice(0, 40)}" vs "${questionB.slice(0, 40)}" → same=${parsed.same} (${parsed.confidence})`);
+      return res.json(parsed);
+    }
+
+    return res.json({ same: null, confidence: 0, reasoning: "Could not parse Gemini response" });
+  } catch (err) {
+    console.error("[verify-similarity] Error:", err.message);
+    return res.json({ same: null, confidence: 0, reasoning: err.message });
   }
 });
 
