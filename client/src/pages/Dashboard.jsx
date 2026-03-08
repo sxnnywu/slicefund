@@ -18,6 +18,20 @@ import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
 
 const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
+const ACTIVE_PANEL_KEY = "slicefund_active_panel";
+const VALID_PANELS = new Set([
+  "home",
+  "thesis",
+  "polymarket",
+  "kalshi",
+  "manifold",
+  "baskets",
+  "markets",
+  "arb",
+  "index",
+  "profile",
+  "trades",
+]);
 const ANALYZE_PROGRESS_STEPS = [
   "Agent 1: Parsing thesis into search keywords",
   "Agent 2: Searching Polymarket, Kalshi, and Manifold",
@@ -176,9 +190,21 @@ function loadStoredSearches() {
   }
 }
 
+function loadStoredPanel() {
+  if (typeof window === "undefined") return "home";
+
+  try {
+    const panel = localStorage.getItem(ACTIVE_PANEL_KEY);
+    return VALID_PANELS.has(panel) ? panel : "home";
+  } catch (error) {
+    console.error("Failed to load active panel:", error);
+    return "home";
+  }
+}
+
 export default function Dashboard() {
   const { user } = useAuth0();
-  const [panel, setPanel] = useState("home");
+  const [panel, setPanel] = useState(() => loadStoredPanel());
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
@@ -207,6 +233,16 @@ export default function Dashboard() {
       console.error("Failed to persist thesis history:", saveError);
     }
   }, [searches]);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+
+    try {
+      localStorage.setItem(ACTIVE_PANEL_KEY, panel);
+    } catch (saveError) {
+      console.error("Failed to persist active panel:", saveError);
+    }
+  }, [panel]);
 
   useEffect(() => () => {
     if (analyzeProgressTimerRef.current) {
