@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from "react";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 function toProbability(value) {
   const numeric = Number(value);
@@ -91,21 +92,7 @@ export default function RightPanel() {
       setError(null);
 
       try {
-        const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-          fetch("/api/polymarket/trending"),
-          fetch("/api/kalshi/trending"),
-          fetch("/api/manifold/trending"),
-        ]);
-
-        const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-          polyRes.json(),
-          kalshiRes.json(),
-          manifoldRes.json(),
-        ]);
-
-        if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-          throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load right panel data");
-        }
+        const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
         const polyMarkets = normalizeMarkets("Polymarket", (polyJson.markets || []).slice(0, 8));
         const kalshiMarkets = normalizeMarkets("Kalshi", (kalshiJson.markets || []).slice(0, 8));

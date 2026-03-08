@@ -16,6 +16,7 @@ import PanelKalshi from "../panels/PanelKalshi.jsx";
 import PanelManifold from "../panels/PanelManifold.jsx";
 import PanelProfile from "../panels/PanelProfile.jsx";
 import WalletConnect from "../components/WalletConnect.jsx";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 const SEARCH_HISTORY_KEY = "slicefund_thesis_history";
 const ACTIVE_PANEL_KEY = "slicefund_active_panel";
@@ -112,21 +113,7 @@ function normalizeOverviewMarkets(platform, markets) {
 }
 
 async function fetchLiveOverview() {
-  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-    fetch("/api/polymarket/trending"),
-    fetch("/api/kalshi/trending"),
-    fetch("/api/manifold/trending"),
-  ]);
-
-  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-    polyRes.json(),
-    kalshiRes.json(),
-    manifoldRes.json(),
-  ]);
-
-  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-    throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load market overview");
-  }
+  const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
   const allMarkets = [
     ...normalizeOverviewMarkets("Polymarket", polyJson?.markets || []),
@@ -208,6 +195,7 @@ export default function Dashboard() {
   const [results, setResults] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
+  const [initialBasket, setInitialBasket] = useState(null);
   const [analyzeStepIndex, setAnalyzeStepIndex] = useState(-1);
   const [searches, setSearches] = useState(() => loadStoredSearches());
   const analyzeProgressTimerRef = useRef(null);
@@ -445,7 +433,10 @@ export default function Dashboard() {
   const renderPanel = () => {
     switch (panel) {
       case "thesis":
-        return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} progress={analyzeProgress} />;
+        return <PanelThesis onAnalyze={analyze} loading={loading} error={error} results={results} searches={searches} progress={analyzeProgress} onCreateBasket={(basket) => {
+          setInitialBasket(basket);
+          setPanel('baskets');
+        }} />;
       case "polymarket":
         return <PanelPolymarket />;
       case "kalshi":
@@ -453,7 +444,7 @@ export default function Dashboard() {
       case "manifold":
         return <PanelManifold />;
       case "baskets":
-        return <PanelBaskets progress={rebalanceProgress} onStartProgress={startRebalanceProgress} onStopProgress={stopRebalanceProgress} />;
+        return <PanelBaskets progress={rebalanceProgress} onStartProgress={startRebalanceProgress} onStopProgress={stopRebalanceProgress} initialBasket={initialBasket} onBasketLoaded={() => setInitialBasket(null)} />;
       case "markets":
         return <PanelMarkets />;
       case "arb":
@@ -522,7 +513,10 @@ export default function Dashboard() {
               <div>
                 <ThesisCard onAnalyze={analyze} loading={loading} progress={analyzeProgress} />
                 {error && <div style={styles.error}>⚠️ {error}</div>}
-                {results && <ResultsPanel data={results} />}
+                {results && <ResultsPanel data={results} onCreateBasket={(basket) => {
+                  setInitialBasket(basket);
+                  setPanel('baskets');
+                }} />}
                 <ActiveMarkets />
                 <PastSearches searches={searches} />
               </div>

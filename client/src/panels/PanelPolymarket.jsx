@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from "react";
+import { getTrendingPlatform } from "../lib/trendingCache.js";
 
 function parsePrice(outcomePrices) {
   try {
@@ -8,6 +9,13 @@ function parsePrice(outcomePrices) {
     }
   } catch {}
   return "—";
+}
+
+function formatLastUpdate(value) {
+  if (!value) return null;
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+  return date.toLocaleTimeString();
 }
 
 function MarketRow({ m }) {
@@ -52,15 +60,13 @@ export default function PanelPolymarket() {
   const [searching, setSearching] = useState(false);
   const [lastUpdate, setLastUpdate] = useState(null);
 
-  const fetchTrending = async () => {
+  const fetchTrending = async ({ force = false } = {}) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await fetch("/api/polymarket/trending");
-      if (!res.ok) throw new Error("Failed to fetch");
-      const data = await res.json();
+      const data = await getTrendingPlatform("polymarket", { force });
       setMarkets(data.markets);
-      setLastUpdate(new Date().toLocaleTimeString());
+      setLastUpdate(formatLastUpdate(data.fetchedAt));
     } catch (err) {
       setError(err.message);
     } finally {
@@ -70,7 +76,7 @@ export default function PanelPolymarket() {
 
   const handleSearch = async (e) => {
     e.preventDefault();
-    if (!search.trim()) { fetchTrending(); return; }
+    if (!search.trim()) { fetchTrending({ force: true }); return; }
     setSearching(true);
     setError(null);
     try {
@@ -114,7 +120,7 @@ export default function PanelPolymarket() {
             {searching ? "⟳" : "⌕ Search"}
           </button>
         </form>
-        <button style={s.refreshBtn} onClick={() => { setSearch(""); fetchTrending(); }}>
+        <button style={s.refreshBtn} onClick={() => { setSearch(""); fetchTrending({ force: true }); }}>
           ↻ Refresh
         </button>
       </div>

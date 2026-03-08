@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import usePhantom from "../hooks/usePhantom.js";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 const STORAGE_KEY = "slicefund_baskets";
 
@@ -136,21 +137,7 @@ function buildLiveBasket(name, sourceLabel, items) {
 }
 
 async function fetchLiveBaskets() {
-  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-    fetch("/api/polymarket/trending"),
-    fetch("/api/kalshi/trending"),
-    fetch("/api/manifold/trending"),
-  ]);
-
-  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-    polyRes.json(),
-    kalshiRes.json(),
-    manifoldRes.json(),
-  ]);
-
-  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-    throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load live baskets");
-  }
+  const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
   const polyMarkets = (polyJson?.markets || []).slice(0, 3).map((market) => ({
     question: market.question,
@@ -201,7 +188,8 @@ async function checkRebalance(basket) {
   }
 }
 
-export default function PanelBaskets({ progress, onStartProgress, onStopProgress }) {
+export default function PanelBaskets({ progress, onStartProgress, onStopProgress, initialBasket, onBasketLoaded }) {
+  const leverageOptions = [1, 2, 3];
   const { wallet, walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
   const [liveBaskets, setLiveBaskets] = useState([]);
   const [customBaskets, setCustomBaskets] = useState([]);
@@ -218,6 +206,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
   const [buyingName, setBuyingName] = useState(null);
   const [buyStatus, setBuyStatus] = useState(null);
   const [buyError, setBuyError] = useState(null);
+  const [leverage, setLeverage] = useState(1);
 
   useEffect(() => {
     const load = async () => {
@@ -243,6 +232,73 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
 
     load();
   }, []);
+
+  // Handle initialBasket from "Create Basket" button
+  useEffect(() => {
+    if (!initialBasket || !initialBasket.markets || initialBasket.markets.length === 0) {
+      return;
+    }
+    
+    console.log("[PanelBaskets] Processing initialBasket:", initialBasket);
+    
+    // Load current baskets directly from localStorage to avoid stale state
+    let currentStoredBaskets = [];
+    try {
+      const raw = JSON.parse(localStorage.getItem(STORAGE_KEY) || "[]");
+      currentStoredBaskets = Array.isArray(raw) ? raw : [];
+      console.log("[PanelBaskets] Loaded from localStorage:", currentStoredBaskets.length, "baskets");
+    } catch (err) {
+      console.error("[PanelBaskets] Failed to load from localStorage:", err);
+    }
+    
+    const newBasket = toCustomBasket(initialBasket, currentStoredBaskets.length);
+    console.log("[PanelBaskets] toCustomBasket returned:", newBasket);
+    
+    if (!newBasket) {
+      console.error("[PanelBaskets] toCustomBasket returned null, not adding basket");
+      if (onBasketLoaded) onBasketLoaded();
+      return;
+    }
+    
+    // Check if a basket with this name already exists and make it unique
+    let uniqueName = newBasket.name;
+    let counter = 2;
+    while (currentStoredBaskets.some(b => {
+      const bName = typeof b === 'object' && b !== null ? b.name : null;
+      return bName === uniqueName;
+    })) {
+      uniqueName = `${newBasket.name} (${counter})`;
+      counter++;
+    }
+    
+    // Update basket name if it was changed
+    if (uniqueName !== newBasket.name) {
+      console.log("[PanelBaskets] Renamed basket from", newBasket.name, "to", uniqueName);
+      newBasket.name = uniqueName;
+    }
+    
+    // Add the new basket
+    const updatedBaskets = [...currentStoredBaskets, newBasket];
+    console.log("[PanelBaskets] Adding new basket, total now:", updatedBaskets.length);
+    
+    // Persist to localStorage
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(updatedBaskets));
+      console.log("[PanelBaskets] Updated baskets persisted to localStorage");
+    } catch (err) {
+      console.error("[PanelBaskets] Failed to persist basket:", err);
+    }
+    
+    // Update state by converting to full basket objects
+    const basketObjects = updatedBaskets.map((b, idx) => toCustomBasket(b, idx)).filter(Boolean);
+    setCustomBaskets(basketObjects);
+    console.log("[PanelBaskets] State updated with", basketObjects.length, "baskets");
+    
+    // Clear initialBasket from parent
+    if (onBasketLoaded) {
+      onBasketLoaded();
+    }
+  }, [initialBasket, onBasketLoaded]);
 
   const baskets = [...liveBaskets, ...customBaskets];
 
@@ -389,8 +445,12 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         type: "basket_execute",
         basket: selectedBasket.name,
         markets: selectedBasket.markets.map((m) => m.market),
+        leverage: Number(leverage) || 1,
         timestamp: new Date().toISOString(),
       };
+
+      const leverageValue = Number(leverage) || 1;
+      const notional = 100 * leverageValue;
 
       let signature = `mock-sig-${Date.now()}`;
       if (activeWallet && typeof signMessage === "function") {
@@ -409,7 +469,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           basket: selectedBasket.markets,
           walletAddress: activeWallet,
           solanaSignature: signature,
-          notional: 100,
+          notional,
         }),
       });
 
@@ -456,8 +516,12 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
         type: "basket_buy",
         basket: basket.name,
         markets: basket.markets.map((m) => m.market),
+        leverage: Number(leverage) || 1,
         timestamp: new Date().toISOString(),
       };
+
+      const leverageValue = Number(leverage) || 1;
+      const notional = 100 * leverageValue;
 
       let signature = `mock-buy-sig-${Date.now()}`;
       if (activeWallet && typeof signMessage === "function") {
@@ -476,7 +540,7 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           basket: basket.markets,
           walletAddress: activeWallet,
           solanaSignature: signature,
-          notional: 100,
+          notional,
         }),
       });
 
@@ -503,6 +567,23 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
           <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
             {loading ? "Loading live baskets..." : `${stats.totalBaskets} live/custom baskets from Polymarket, Kalshi, Manifold`}
           </p>
+        </div>
+        <div style={s.leverageControl}>
+          <label style={s.leverageLabel} htmlFor="basket-leverage">
+            Leverage
+          </label>
+          <select
+            id="basket-leverage"
+            value={leverage}
+            onChange={(event) => setLeverage(Number(event.target.value))}
+            style={s.leverageSelect}
+          >
+            {leverageOptions.map((value) => (
+              <option key={value} value={value}>
+                {value}x
+              </option>
+            ))}
+          </select>
         </div>
       </div>
 
@@ -688,18 +769,6 @@ export default function PanelBaskets({ progress, onStartProgress, onStopProgress
               )}
             </div>
           )}
-          {proposedTrades.length > 0 && selectedBasket?.markets?.some((market) => market.marketUrl) && (
-            <div style={s.linksRow}>
-              {selectedBasket.markets
-                .filter((market) => market.marketUrl && proposedTrades.some(t => t.market === (market.market || market.question)))
-                .slice(0, 3)
-                .map((market, index) => (
-                  <a key={`${market.market}-${index}`} href={market.marketUrl} target="_blank" rel="noopener noreferrer" style={s.linkBtn}>
-                    Open {market.platform} ↗
-                  </a>
-                ))}
-            </div>
-          )}
         </div>
       )}
     </>
@@ -712,6 +781,18 @@ const s = {
   statL: { fontSize: 11, fontWeight: 600, letterSpacing: 1.5, color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 },
   statV: { fontFamily: "'DM Mono',monospace", fontSize: 28, fontWeight: 500 },
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)", marginBottom: 24 },
+  leverageControl: { display: "flex", alignItems: "center", gap: 10 },
+  leverageLabel: { fontSize: 11, fontWeight: 700, letterSpacing: 1, textTransform: "uppercase", color: "var(--text-dim)" },
+  leverageSelect: {
+    borderRadius: 10,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+    padding: "6px 10px",
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    fontFamily: "'DM Mono',monospace",
+  },
   action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", fontFamily: "'DM Mono',monospace" },
   row: { display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: "1px solid var(--border2)" },
   num: {
@@ -756,23 +837,6 @@ const s = {
   success: { background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12, padding: "12px 16px", marginBottom: 12, color: "var(--green)", fontSize: 12 },
   error: { background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14 },
   empty: { padding: "24px", textAlign: "center", fontSize: 13, color: "var(--text-dim)" },
-  linksRow: {
-    marginTop: 14,
-    display: "flex",
-    gap: 8,
-    flexWrap: "wrap",
-  },
-  linkBtn: {
-    padding: "7px 10px",
-    borderRadius: 8,
-    border: "1px solid var(--border)",
-    color: "var(--blue)",
-    fontSize: 11,
-    fontWeight: 600,
-    textDecoration: "none",
-    fontFamily: "'DM Mono',monospace",
-    background: "var(--surface)",
-  },
   progressWrap: {
     background: "var(--surface)",
     border: "1px solid var(--border)",
