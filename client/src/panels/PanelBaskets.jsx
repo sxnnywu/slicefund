@@ -1,34 +1,26 @@
-import React, { useEffect, useState } from "react";
-import usePhantom from "../hooks/usePhantom.js";
-
-const DEFAULT_BASKETS = [
-  {
-    name: "Trump Tariffs 2025",
-    markets: [
-      { market: "Will Trump impose 25%+ tariffs on Canada in 2025", platform: "Polymarket", target_weight: 0.4, current_weight: 0.42 },
-      { market: "Will US-Canada trade volume drop >10% in 2025", platform: "Kalshi", target_weight: 0.3, current_weight: 0.28 },
-      { market: "Will Canadian auto exports to US fall in Q1 2025", platform: "Manifold", target_weight: 0.3, current_weight: 0.3 },
-    ],
-    src: "POLYMARKET",
-    odds: 71,
-    yield: "+22.1%",
-    up: true,
-  },
-  {
-    name: "AI Regulation Wave",
-    markets: [
-      { market: "Will EU AI Act enforcement begin before Q4 2025", platform: "Polymarket", target_weight: 0.4, current_weight: 0.45 },
-      { market: "Will US Congress pass an AI liability bill in 2025", platform: "Kalshi", target_weight: 0.35, current_weight: 0.30 },
-      { market: "Will OpenAI face major regulatory action in 2025", platform: "Manifold", target_weight: 0.25, current_weight: 0.25 },
-    ],
-    src: "POLYMARKET",
-    odds: 64,
-    yield: "+12.4%",
-    up: true,
-  },
-];
+import React, { useEffect, useMemo, useState } from "react";
 
 const STORAGE_KEY = "slicefund_baskets";
+
+function toProbability(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  if (numeric > 1 && numeric <= 100) return numeric / 100;
+  if (numeric < 0 || numeric > 1) return null;
+  return numeric;
+}
+
+function parsePolymarketPrice(outcomePrices) {
+  try {
+    const prices = typeof outcomePrices === "string" ? JSON.parse(outcomePrices) : outcomePrices;
+    if (Array.isArray(prices) && prices.length > 0) {
+      return toProbability(prices[0]);
+    }
+  } catch {
+    return null;
+  }
+  return null;
+}
 
 function normalizeWeight(value, fallback = 0) {
   const num = Number(value);
@@ -68,26 +60,23 @@ function toCustomBasket(raw, index) {
         platform,
         target_weight: targetWeight,
         current_weight: currentWeight,
+        marketUrl: typeof market?.marketUrl === "string" ? market.marketUrl : null,
       };
     })
     .filter(Boolean);
 
   if (markets.length === 0) return null;
 
-  const src = markets[0]?.platform ? String(markets[0].platform).toUpperCase() : "CUSTOM";
-  const createdAt = raw.created ? new Date(raw.created) : null;
-  const mintedLabel =
-    createdAt && !Number.isNaN(createdAt.getTime())
-      ? `Minted ${createdAt.toLocaleDateString("en-US", { month: "short", day: "numeric" })}`
-      : "Minted";
+  const avgOdds =
+    markets.reduce((sum, market) => sum + normalizeWeight(market.current_weight, 0), 0) /
+    Math.max(markets.length, 1);
 
   return {
     name,
     markets,
-    src,
-    odds: null,
-    yield: mintedLabel,
-    up: true,
+    src: "CUSTOM",
+    odds: Math.round(avgOdds * 100),
+    yield: "Custom",
     isCustom: true,
   };
 }
@@ -105,47 +94,165 @@ function loadPersistedBaskets() {
   }
 }
 
+function formatVolume(volume) {
+  const numeric = Number(volume);
+  if (!Number.isFinite(numeric)) return "—";
+  if (numeric >= 1_000_000) return `$${(numeric / 1_000_000).toFixed(1)}M`;
+  if (numeric >= 1_000) return `$${(numeric / 1_000).toFixed(1)}K`;
+  return `$${numeric.toFixed(0)}`;
+}
+
+function buildLiveBasket(name, sourceLabel, items) {
+  if (!Array.isArray(items) || items.length === 0) return null;
+
+  const targetWeight = 1 / items.length;
+  const markets = items.map((item) => {
+    const yesPrice = toProbability(item.yesPrice) ?? targetWeight;
+    return {
+      market: item.question,
+      platform: item.platform,
+      target_weight: targetWeight,
+      current_weight: yesPrice,
+      marketUrl: item.marketUrl,
+      volume: item.volume,
+    };
+  });
+
+  const averageOdds =
+    markets.reduce((sum, market) => sum + normalizeWeight(market.current_weight, 0), 0) /
+    Math.max(markets.length, 1);
+
+  const totalVolume = markets.reduce((sum, market) => sum + (Number(market.volume) || 0), 0);
+
+  return {
+    name,
+    markets,
+    src: sourceLabel,
+    odds: Math.round(averageOdds * 100),
+    yield: formatVolume(totalVolume),
+    isCustom: false,
+  };
+}
+
+async function fetchLiveBaskets() {
+  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
+    fetch("/api/polymarket/trending"),
+    fetch("/api/kalshi/trending"),
+    fetch("/api/manifold/trending"),
+  ]);
+
+  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
+    polyRes.json(),
+    kalshiRes.json(),
+    manifoldRes.json(),
+  ]);
+
+  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
+    throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load live baskets");
+  }
+
+  const polyMarkets = (polyJson?.markets || []).slice(0, 3).map((market) => ({
+    question: market.question,
+    platform: "Polymarket",
+    yesPrice: parsePolymarketPrice(market.outcomePrices),
+    marketUrl: market.slug ? `https://polymarket.com/event/${market.slug}` : null,
+    volume: market.volume,
+  })).filter((market) => market.yesPrice !== null);
+
+  const kalshiMarkets = (kalshiJson?.markets || []).slice(0, 3).map((market) => ({
+    question: market.question,
+    platform: "Kalshi",
+    yesPrice: toProbability(market.yes_price),
+    marketUrl: market.ticker ? `https://kalshi.com/markets/${market.ticker}` : null,
+    volume: market.volume,
+  })).filter((market) => market.yesPrice !== null);
+
+  const manifoldMarkets = (manifoldJson?.markets || []).slice(0, 3).map((market) => ({
+    question: market.question,
+    platform: "Manifold",
+    yesPrice: toProbability(market.probability),
+    marketUrl: market.url || (market.slug ? `https://manifold.markets/${market.slug}` : null),
+    volume: market.volume,
+  })).filter((market) => market.yesPrice !== null);
+
+  const crossPlatformCore = [polyMarkets[0], kalshiMarkets[0], manifoldMarkets[0]].filter(Boolean);
+
+  return [
+    buildLiveBasket("Polymarket Momentum", "POLYMARKET", polyMarkets),
+    buildLiveBasket("Kalshi Macro", "KALSHI", kalshiMarkets),
+    buildLiveBasket("Manifold Signal", "MANIFOLD", manifoldMarkets),
+    buildLiveBasket("Cross-Platform Core", "LIVE", crossPlatformCore),
+  ].filter(Boolean);
+}
+
 async function checkRebalance(basket) {
   try {
-    const response = await fetch("http://localhost:3001/api/basket/rebalance", {
+    const response = await fetch("/api/basket/rebalance", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ basket: basket.markets }),
     });
 
-    if (!response.ok) {
-      console.error(`Rebalance check failed for ${basket.name}:`, response.statusText);
-      return null;
-    }
-
-    const result = await response.json();
-    return result;
-  } catch (error) {
-    console.error(`Error checking rebalance for ${basket.name}:`, error);
+    if (!response.ok) return null;
+    return response.json();
+  } catch {
     return null;
   }
 }
 
 export default function PanelBaskets() {
-  const [baskets, setBaskets] = useState(DEFAULT_BASKETS);
+  const [liveBaskets, setLiveBaskets] = useState([]);
+  const [customBaskets, setCustomBaskets] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
   const [selectedBasket, setSelectedBasket] = useState(null);
   const [rebalanceData, setRebalanceData] = useState(null);
   const [isChecking, setIsChecking] = useState(false);
-  const [isExecuting, setIsExecuting] = useState(false);
-  const [executeStatus, setExecuteStatus] = useState(null);
-  const [executeError, setExecuteError] = useState(null);
-  const [isBuying, setIsBuying] = useState(false);
-  const [buyingName, setBuyingName] = useState(null);
-  const [buyStatus, setBuyStatus] = useState(null);
-  const [buyError, setBuyError] = useState(null);
-  const { walletAddress, connect, signMessage, phantomInstalled } = usePhantom();
 
   useEffect(() => {
-    const persistedBaskets = loadPersistedBaskets();
-    setBaskets([...DEFAULT_BASKETS, ...persistedBaskets]);
+    const load = async () => {
+      setLoading(true);
+      setError(null);
+
+      try {
+        const [fetchedLive, persisted] = await Promise.all([
+          fetchLiveBaskets(),
+          Promise.resolve(loadPersistedBaskets()),
+        ]);
+
+        setLiveBaskets(fetchedLive);
+        setCustomBaskets(persisted);
+      } catch (loadError) {
+        setError(loadError.message || "Failed to load baskets");
+        setLiveBaskets([]);
+        setCustomBaskets(loadPersistedBaskets());
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    load();
   }, []);
 
-  const persistedCount = Math.max(baskets.length - DEFAULT_BASKETS.length, 0);
+  const baskets = [...liveBaskets, ...customBaskets];
+
+  const stats = useMemo(() => {
+    const totalBaskets = baskets.length;
+    const avgOdds =
+      baskets.length > 0
+        ? Math.round(baskets.reduce((sum, basket) => sum + (Number(basket.odds) || 0), 0) / baskets.length)
+        : 0;
+    const totalMarkets = baskets.reduce((sum, basket) => sum + (Array.isArray(basket.markets) ? basket.markets.length : 0), 0);
+    const customCount = customBaskets.length;
+
+    return {
+      totalBaskets,
+      avgOdds,
+      totalMarkets,
+      customCount,
+    };
+  }, [baskets, customBaskets]);
 
   const handleCheckRebalance = async (basket) => {
     setIsChecking(true);
@@ -155,246 +262,153 @@ export default function PanelBaskets() {
     setIsChecking(false);
   };
 
-  const handleExecute = async () => {
-    if (!selectedBasket) return;
-    setIsExecuting(true);
-    setExecuteStatus(null);
-    setExecuteError(null);
-
-    try {
-      let activeWallet = walletAddress;
-      if (!activeWallet) {
-        const connected = await connect();
-        activeWallet = connected?.toString?.() || walletAddress;
-      }
-
-      const payload = {
-        type: "basket_execute",
-        basket: selectedBasket.name,
-        markets: selectedBasket.markets.map((m) => m.market),
-        timestamp: new Date().toISOString(),
-      };
-
-      const signature = activeWallet
-        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
-        : null;
-
-      const response = await fetch("/api/mock/polymarket/execute-basket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          basket: selectedBasket.markets,
-          walletAddress: activeWallet,
-          solanaSignature: signature,
-          notional: 100,
-        }),
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Execution failed");
-      }
-
-      const result = await response.json();
-      setExecuteStatus(`Executed ${result.count} mock trades`);
-    } catch (error) {
-      setExecuteError(error.message || "Execution failed");
-    } finally {
-      setIsExecuting(false);
-    }
-  };
-
-  const handleBuy = async (basket) => {
-    setIsBuying(true);
-    setBuyingName(basket?.name || null);
-    setBuyStatus(null);
-    setBuyError(null);
-
-    try {
-      let activeWallet = walletAddress;
-      if (!activeWallet) {
-        const connected = await connect();
-        activeWallet = connected?.toString?.() || walletAddress;
-      }
-
-      const payload = {
-        type: "basket_buy",
-        basket: basket.name,
-        markets: basket.markets.map((m) => m.market),
-        timestamp: new Date().toISOString(),
-      };
-
-      const signature = activeWallet
-        ? (await signMessage(JSON.stringify(payload), activeWallet)).signature
-        : null;
-
-      const response = await fetch("/api/mock/polymarket/buy-basket", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          basket: basket.markets,
-          walletAddress: activeWallet,
-          solanaSignature: signature,
-          notional: 100,
-        }),
-      });
-
-      if (!response.ok) {
-        const message = await response.text();
-        throw new Error(message || "Basket buy failed");
-      }
-
-      const result = await response.json();
-      setBuyStatus(`Bought ${result.count} mock positions`);
-      setSelectedBasket(basket);
-    } catch (error) {
-      setBuyError(error.message || "Basket buy failed");
-    } finally {
-      setIsBuying(false);
-      setBuyingName(null);
-    }
-  };
-
   return (
     <>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 36 }}>
-        <div><h2 style={{ fontSize: 24, fontWeight: 700 }}>My Baskets</h2><p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>{baskets.length} active prediction market index funds</p></div>
-        <button style={s.btn}>+ New Basket</button>
+        <div>
+          <h2 style={{ fontSize: 24, fontWeight: 700 }}>My Baskets</h2>
+          <p style={{ fontSize: 13, color: "var(--text-dim)", marginTop: 3 }}>
+            {loading ? "Loading live baskets..." : `${stats.totalBaskets} live/custom baskets from Polymarket, Kalshi, Manifold`}
+          </p>
+        </div>
       </div>
+
       <div style={s.statRow}>
-        {[{ l: "Total Baskets", v: String(baskets.length), d: persistedCount > 0 ? `+${persistedCount} minted locally` : "No local mints yet", c: persistedCount > 0 ? "var(--green)" : "var(--text-dim)" }, { l: "Best Performer", v: "+22.1%", d: "Trump Tariffs", c: "var(--green)" }, { l: "Avg Yield", v: "+14.2%", d: "↑ vs last month", c: "var(--green)" }, { l: "Total Volume", v: "$18.4M", d: "Across all baskets", c: "var(--green)" }].map((x, i) => (
-          <div key={i} style={s.stat}><div style={s.statL}>{x.l}</div><div style={s.statV}>{x.v}</div><div style={{ fontSize: 12, fontWeight: 600, marginTop: 6, color: x.c }}>{x.d}</div></div>
+        {[
+          { l: "Total Baskets", v: String(stats.totalBaskets), d: `${stats.customCount} custom`, c: "var(--text-dim)" },
+          { l: "Avg Odds", v: stats.avgOdds ? `${stats.avgOdds}¢` : "—", d: "Implied YES", c: "var(--green)" },
+          { l: "Total Markets", v: String(stats.totalMarkets), d: "Across all baskets", c: "var(--green)" },
+          { l: "Data Sources", v: "3", d: "Polymarket · Kalshi · Manifold", c: "var(--green)" },
+        ].map((item, index) => (
+          <div key={index} style={s.stat}>
+            <div style={s.statL}>{item.l}</div>
+            <div style={s.statV}>{item.v}</div>
+            <div style={{ fontSize: 12, fontWeight: 600, marginTop: 6, color: item.c }}>{item.d}</div>
+          </div>
         ))}
       </div>
+
+      {error && <div style={s.error}>{error}</div>}
+
       <div style={s.card}>
-        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}><div style={{ fontSize: 15, fontWeight: 700 }}>Active Baskets</div><div style={s.action}>Sort by yield</div></div>
-        {phantomInstalled === false && (
-          <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--text-dim)" }}>
-            Connect Phantom to sign mock basket trades.
-          </div>
+        <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 20 }}>
+          <div style={{ fontSize: 15, fontWeight: 700 }}>Active Baskets</div>
+          <div style={s.action}>Live data only</div>
+        </div>
+
+        {!loading && baskets.length === 0 && (
+          <div style={s.empty}>No baskets available yet.</div>
         )}
-        {buyStatus && (
-          <div style={{ padding: "10px 12px", border: "1px solid rgba(0,196,140,0.3)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--green)" }}>
-            {buyStatus}
-          </div>
-        )}
-        {buyError && (
-          <div style={{ padding: "10px 12px", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--red)" }}>
-            {buyError}
-          </div>
-        )}
-        {baskets.map((b, i) => (
-          <div key={i} style={s.row}>
-            <div style={s.num}>{i + 1}</div>
-            <div style={{ flex: 1, minWidth: 0 }}><div style={s.q}>{b.name}</div><div style={s.meta}>{b.markets.length} MARKETS · {b.src}</div></div>
-            <div style={{ textAlign: "right" }}><div style={s.odds}>{typeof b.odds === "number" ? `${b.odds}¢` : "—"}</div><div style={{ fontSize: 10, color: b.isCustom ? "var(--text-dim)" : b.up ? "var(--green)" : "var(--red)", fontWeight: 600 }}>{b.yield}</div></div>
+
+        {baskets.map((basket, index) => (
+          <div key={`${basket.name}-${index}`} style={s.row}>
+            <div style={s.num}>{index + 1}</div>
+            <div style={{ flex: 1, minWidth: 0 }}>
+              <div style={s.q}>{basket.name}</div>
+              <div style={s.meta}>{basket.markets.length} MARKETS · {basket.src}</div>
+            </div>
+            <div style={{ textAlign: "right" }}>
+              <div style={s.odds}>{typeof basket.odds === "number" ? `${basket.odds}¢` : "—"}</div>
+              <div style={{ fontSize: 10, color: "var(--text-dim)", fontWeight: 600 }}>{basket.yield}</div>
+            </div>
             <button
-              onClick={() => handleBuy(b)}
-              disabled={isBuying}
-              style={{
-                ...s.buyBtn,
-                opacity: isBuying ? 0.6 : 1,
-              }}
-            >
-              {isBuying && buyingName === b.name ? "Buying..." : "Buy"}
-            </button>
-            <button
-              onClick={() => handleCheckRebalance(b)}
+              onClick={() => handleCheckRebalance(basket)}
               disabled={isChecking}
-              style={{
-                ...s.checkBtn,
-                opacity: isChecking ? 0.6 : 1,
-              }}
+              style={{ ...s.checkBtn, opacity: isChecking ? 0.6 : 1 }}
             >
-              {isChecking && selectedBasket === b ? "⟳" : "Check"}
+              {isChecking && selectedBasket === basket ? "⟳" : "Check"}
             </button>
           </div>
         ))}
       </div>
 
-      {/* Rebalance Analysis Panel */}
       {rebalanceData && (
         <div style={s.card}>
           <div style={{ fontSize: 15, fontWeight: 700, marginBottom: 16 }}>
             🤖 Rebalancer Analysis: {selectedBasket?.name}
           </div>
-          {phantomInstalled === false && (
-            <div style={{ padding: "10px 12px", border: "1px solid var(--border)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--text-dim)" }}>
-              Connect Phantom to sign mock basket trades.
-            </div>
-          )}
-          {executeStatus && (
-            <div style={{ padding: "10px 12px", border: "1px solid rgba(0,196,140,0.3)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--green)" }}>
-              {executeStatus}
-            </div>
-          )}
-          {executeError && (
-            <div style={{ padding: "10px 12px", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 10, marginBottom: 12, fontSize: 12, color: "var(--red)" }}>
-              {executeError}
-            </div>
-          )}
           <div style={s.agentResponse}>
             {rebalanceData.rebalanceAnalysis?.content || "No analysis available"}
           </div>
-          <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
-            <button
-              style={{ ...s.checkBtn, background: "var(--green)", color: "#fff", border: "none" }}
-              onClick={handleExecute}
-              disabled={isExecuting}
-            >
-              {isExecuting ? "Executing..." : "Execute Basket (Mock)"}
-            </button>
-          </div>
+          {selectedBasket?.markets?.some((market) => market.marketUrl) && (
+            <div style={s.linksRow}>
+              {selectedBasket.markets
+                .filter((market) => market.marketUrl)
+                .slice(0, 3)
+                .map((market, index) => (
+                  <a key={`${market.market}-${index}`} href={market.marketUrl} target="_blank" rel="noopener noreferrer" style={s.linkBtn}>
+                    Open {market.platform} ↗
+                  </a>
+                ))}
+            </div>
+          )}
         </div>
       )}
     </>
   );
 }
+
 const s = {
-  btn: { padding: "9px 16px", borderRadius: 10, border: "none", background: "var(--blue)", color: "#fff", fontFamily: "'Outfit',sans-serif", fontSize: 13, fontWeight: 600, cursor: "pointer", boxShadow: "0 4px 16px rgba(26,92,255,0.25)" },
   statRow: { display: "grid", gridTemplateColumns: "repeat(4,1fr)", gap: 16, marginBottom: 32 },
   stat: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 16, padding: "20px 22px", boxShadow: "var(--shadow)" },
   statL: { fontSize: 11, fontWeight: 600, letterSpacing: 1.5, color: "var(--text-dim)", textTransform: "uppercase", marginBottom: 10 },
   statV: { fontFamily: "'DM Mono',monospace", fontSize: 28, fontWeight: 500 },
   card: { background: "var(--surface)", border: "1px solid var(--border)", borderRadius: 20, padding: "24px 28px", boxShadow: "var(--shadow)", marginBottom: 24 },
-  action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", cursor: "pointer", fontFamily: "'DM Mono',monospace" },
-  row: { display: "flex", alignItems: "center", gap: 14, padding: "14px 8px", borderBottom: "1px solid var(--border2)", cursor: "pointer", borderRadius: 8, margin: "0 -8px" },
-  num: { width: 32, height: 32, borderRadius: 8, background: "var(--blue-light)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 13, fontWeight: 700, color: "var(--blue)", flexShrink: 0 },
-  q: { fontSize: 13, fontWeight: 600 },
+  action: { fontSize: 12, fontWeight: 600, color: "var(--blue)", fontFamily: "'DM Mono',monospace" },
+  row: { display: "flex", alignItems: "center", gap: 14, padding: "14px 0", borderBottom: "1px solid var(--border2)" },
+  num: {
+    width: 32,
+    height: 32,
+    borderRadius: 8,
+    background: "var(--blue)",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: 13,
+    flexShrink: 0,
+  },
+  q: { fontSize: 13, fontWeight: 600, whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" },
   meta: { fontSize: 10, fontWeight: 600, letterSpacing: 1, color: "var(--text-dim)", fontFamily: "'DM Mono',monospace", marginTop: 3 },
   odds: { fontFamily: "'DM Mono',monospace", fontSize: 18, fontWeight: 500, color: "var(--blue)" },
-  buyBtn: {
-    padding: "6px 12px",
-    borderRadius: 8,
-    border: "none",
-    background: "var(--green)",
-    color: "#fff",
-    fontFamily: "'Outfit',sans-serif",
-    fontSize: 12,
-    fontWeight: 600,
-    cursor: "pointer",
-    flexShrink: 0,
-  },
   checkBtn: {
-    padding: "6px 12px",
-    borderRadius: 8,
+    padding: "8px 14px",
+    background: "none",
     border: "1px solid var(--border)",
-    background: "var(--surface)",
-    color: "var(--text)",
+    borderRadius: 8,
     fontFamily: "'Outfit',sans-serif",
     fontSize: 12,
     fontWeight: 600,
+    color: "var(--blue)",
     cursor: "pointer",
-    flexShrink: 0,
   },
+  error: { background: "var(--red-light)", border: "1px solid rgba(255,77,106,0.3)", borderRadius: 12, padding: "16px 20px", marginBottom: 24, color: "var(--red)", fontSize: 14 },
+  empty: { padding: "24px", textAlign: "center", fontSize: 13, color: "var(--text-dim)" },
   agentResponse: {
     background: "var(--blue-light)",
     border: "1px solid rgba(26,92,255,0.2)",
     borderRadius: 12,
     padding: "16px 18px",
     fontSize: 13,
-    color: "var(--text)",
     lineHeight: 1.6,
     whiteSpace: "pre-wrap",
+  },
+  linksRow: {
+    marginTop: 14,
+    display: "flex",
+    gap: 8,
+    flexWrap: "wrap",
+  },
+  linkBtn: {
+    padding: "7px 10px",
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    color: "var(--blue)",
+    fontSize: 11,
+    fontWeight: 600,
+    textDecoration: "none",
+    fontFamily: "'DM Mono',monospace",
+    background: "var(--surface)",
   },
 };

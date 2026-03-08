@@ -21,6 +21,14 @@ function parsePrice(outcomePrices) {
   return null;
 }
 
+function toProbability(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+  if (numeric > 1 && numeric <= 100) return numeric / 100;
+  if (numeric < 0 || numeric > 1) return null;
+  return numeric;
+}
+
 export default function ActiveMarkets() {
   const [markets, setMarkets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -28,11 +36,51 @@ export default function ActiveMarkets() {
   useEffect(() => {
     const fetchMarkets = async () => {
       try {
-        const res = await fetch("/api/polymarket/trending");
-        if (res.ok) {
-          const data = await res.json();
-          setMarkets((data.markets || []).slice(0, 4));
-        }
+        const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
+          fetch("/api/polymarket/trending"),
+          fetch("/api/kalshi/trending"),
+          fetch("/api/manifold/trending"),
+        ]);
+
+        const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
+          polyRes.json(),
+          kalshiRes.json(),
+          manifoldRes.json(),
+        ]);
+
+        const polymarket = (polyJson?.markets || []).map((market) => ({
+          ...market,
+          platform: "Polymarket",
+          odds: parsePrice(market.outcomePrices),
+          expires: market.endDate,
+        }));
+
+        const kalshi = (kalshiJson?.markets || []).map((market) => ({
+          ...market,
+          platform: "Kalshi",
+          odds: (() => {
+            const normalized = toProbability(market.yes_price);
+            return normalized === null ? null : Math.round(normalized * 100);
+          })(),
+          expires: market.closeDate,
+        }));
+
+        const manifold = (manifoldJson?.markets || []).map((market) => ({
+          ...market,
+          platform: "Manifold",
+          odds: (() => {
+            const normalized = toProbability(market.probability);
+            return normalized === null ? null : Math.round(normalized * 100);
+          })(),
+          expires: market.closeDate,
+        }));
+
+        const merged = [...polymarket, ...kalshi, ...manifold]
+          .filter((market) => market.odds !== null)
+          .sort((a, b) => (Number(b.volume) || 0) - (Number(a.volume) || 0))
+          .slice(0, 4);
+
+        setMarkets(merged);
       } catch (err) {
         console.error("Failed to fetch markets:", err);
       } finally {
@@ -51,14 +99,14 @@ export default function ActiveMarkets() {
       {loading && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>Loading...</div>}
       {!loading && markets.length === 0 && <div style={{ fontSize: 12, color: "var(--text-dim)", textAlign: "center", padding: 20 }}>No markets found</div>}
       {!loading && markets.map((m, i) => {
-        const odds = parsePrice(m.outcomePrices);
-        const exp = m.endDate ? new Date(m.endDate).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase() : "—";
+        const odds = Number.isFinite(Number(m.odds)) ? Number(m.odds) : null;
+        const exp = m.expires ? new Date(m.expires).toLocaleDateString("en-US", { month: "short", day: "numeric" }).toUpperCase() : "—";
         return (
         <div key={m.id || m.id || i} style={styles.row}>
           <div style={styles.icon}>{getIcon(m.question)}</div>
           <div style={{ flex: 1, minWidth: 0 }}>
             <div style={styles.q}>{m.question}</div>
-            <div style={styles.meta}>POLYMARKET · EXPIRES {exp}</div>
+            <div style={styles.meta}>{String(m.platform || "Unknown").toUpperCase()} · EXPIRES {exp}</div>
           </div>
           <div style={{ textAlign: "right", flexShrink: 0 }}>
             <div style={styles.odds}>{odds !== null ? `${odds}¢` : "—"}</div>

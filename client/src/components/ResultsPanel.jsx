@@ -1,7 +1,142 @@
 import React from "react";
 
+function compactLine(text, maxChars = 96) {
+  if (typeof text !== "string") return "";
+  const clean = text.replace(/\s+/g, " ").trim();
+  if (clean.length <= maxChars) return clean;
+  return `${clean.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function toProbability(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return null;
+
+  if (numeric > 1 && numeric <= 100) {
+    return numeric / 100;
+  }
+
+  if (numeric < 0 || numeric > 1) {
+    return null;
+  }
+
+  return numeric;
+}
+
+function formatOdds(value) {
+  const probability = toProbability(value);
+  if (probability === null) return "—";
+  return `${Math.round(probability * 100)}¢`;
+}
+
+function normalizeAgentAnalysis(rawContent) {
+  if (typeof rawContent !== "string" || rawContent.trim().length === 0) {
+    return null;
+  }
+
+  const cleaned = rawContent
+    .replace(/\r/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+
+  const lines = cleaned
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  const sections = {
+    quickTake: "",
+    keyDrivers: [],
+    risks: [],
+    angles: [],
+    confidence: null,
+  };
+
+  let currentSection = null;
+
+  for (const line of lines) {
+    const normalized = line.toLowerCase().replace(/[:\-]+$/g, "").trim();
+
+    if (normalized.startsWith("quick take")) {
+      currentSection = "quickTake";
+      const sameLineValue = line.replace(/quick take\s*[:\-]?\s*/i, "").trim();
+      if (sameLineValue.length > 0) sections.quickTake = sameLineValue;
+      continue;
+    }
+
+    if (normalized.startsWith("key drivers")) {
+      currentSection = "keyDrivers";
+      continue;
+    }
+
+    if (normalized.includes("risks") || normalized.includes("contradictions")) {
+      currentSection = "risks";
+      continue;
+    }
+
+    if (normalized.startsWith("best market angles") || normalized.startsWith("market angles")) {
+      currentSection = "angles";
+      continue;
+    }
+
+    if (normalized.startsWith("confidence")) {
+      const match = line.match(/(0(?:\.\d+)?|1(?:\.0+)?)|([0-9]{1,3})%/i);
+      if (match) {
+        if (match[2]) {
+          sections.confidence = Math.max(0, Math.min(1, Number(match[2]) / 100));
+        } else {
+          sections.confidence = Math.max(0, Math.min(1, Number(match[1])));
+        }
+      }
+      continue;
+    }
+
+    const bullet = line.replace(/^[\-•*]\s*/, "").trim();
+    if (!bullet) continue;
+
+    if (currentSection === "quickTake") {
+      if (!sections.quickTake) sections.quickTake = bullet;
+      continue;
+    }
+
+    if (currentSection === "keyDrivers") {
+      sections.keyDrivers.push(bullet);
+      continue;
+    }
+
+    if (currentSection === "risks") {
+      sections.risks.push(bullet);
+      continue;
+    }
+
+    if (currentSection === "angles") {
+      sections.angles.push(bullet);
+      continue;
+    }
+
+    if (!sections.quickTake) {
+      sections.quickTake = bullet;
+    } else {
+      sections.keyDrivers.push(bullet);
+    }
+  }
+
+  if (!sections.quickTake) {
+    const firstSentence = cleaned.split(/(?<=[.!?])\s+/).find((sentence) => sentence.trim().length > 0);
+    sections.quickTake = firstSentence ? firstSentence.trim() : cleaned.slice(0, 140);
+  }
+
+  sections.quickTake = compactLine(sections.quickTake, 120);
+  sections.keyDrivers = sections.keyDrivers.map((item) => compactLine(item, 64)).slice(0, 3);
+  sections.risks = sections.risks.map((item) => compactLine(item, 64)).slice(0, 2);
+  sections.angles = sections.angles.map((item) => compactLine(item, 70)).slice(0, 3);
+
+  return sections;
+}
+
 export default function ResultsPanel({ data }) {
   const { thesis, keywords, totalMarketsFound, picks, agentAnalysis, thesisMapping } = data;
+  const compactAgentAnalysis = normalizeAgentAnalysis(agentAnalysis?.content);
 
   return (
     <div style={styles.card}>
@@ -19,10 +154,54 @@ export default function ResultsPanel({ data }) {
       </div>
 
       {/* Agent Analysis Section */}
-      {agentAnalysis?.content && (
+      {compactAgentAnalysis && (
         <div style={styles.agentSection}>
           <div style={styles.agentTitle}>🤖 ThesisResearcher Agent</div>
-          <div style={styles.agentContent}>{agentAnalysis.content}</div>
+          <div style={styles.quickTakeRow}>
+            <span style={styles.quickTakePill}>Quick Take</span>
+            <span style={styles.quickTakeInline}>{compactAgentAnalysis.quickTake}</span>
+          </div>
+
+          <div style={styles.agentGrid}>
+            {compactAgentAnalysis.keyDrivers.length > 0 && (
+              <div style={styles.agentBlock}>
+                <div style={styles.agentBlockTitle}>Key Drivers</div>
+                <div style={styles.agentChips}>
+                  {compactAgentAnalysis.keyDrivers.map((item, index) => (
+                    <span key={`driver-${index}`} style={styles.agentChip}>{item}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {compactAgentAnalysis.risks.length > 0 && (
+              <div style={styles.agentBlock}>
+                <div style={styles.agentBlockTitle}>Risks / Contradictions</div>
+                <div style={styles.agentChips}>
+                  {compactAgentAnalysis.risks.map((item, index) => (
+                    <span key={`risk-${index}`} style={styles.agentChipRisk}>{item}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {compactAgentAnalysis.angles.length > 0 && (
+              <div style={styles.agentBlock}>
+                <div style={styles.agentBlockTitle}>Best Market Angles</div>
+                <div style={styles.agentChips}>
+                  {compactAgentAnalysis.angles.map((item, index) => (
+                    <span key={`angle-${index}`} style={styles.agentChipAngle}>{item}</span>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+
+          {typeof compactAgentAnalysis.confidence === "number" && (
+            <div style={styles.agentConfidence}>
+              Confidence {(compactAgentAnalysis.confidence * 100).toFixed(0)}%
+            </div>
+          )}
         </div>
       )}
 
@@ -36,7 +215,7 @@ export default function ResultsPanel({ data }) {
             {thesisMapping.markets.map((m, i) => (
               <div key={i} style={styles.mappingCard}>
                 <div style={styles.platform}>{m.platform}</div>
-                <div style={styles.mappingQuestion}>{m.question}</div>
+                <div style={styles.mappingQuestion}>{compactLine(m.question, 112)}</div>
                 {m.estimated_probability && (
                   <div style={styles.probability}>
                     Estimated: {(m.estimated_probability * 100).toFixed(0)}%
@@ -55,8 +234,27 @@ export default function ResultsPanel({ data }) {
           <div style={styles.sectionTitle}>🎯 Top Market Picks</div>
           {picks.map((pick, i) => {
             const isYes = pick.suggested_position === "YES";
-            const priceNum = parseFloat(pick.current_price);
-            const price = !isNaN(priceNum) ? `${(priceNum < 1 ? priceNum * 100 : priceNum).toFixed(0)}¢` : "—";
+            const suggestedProb = toProbability(pick.current_price);
+            const explicitYesProb = toProbability(pick.yes_odds);
+            const explicitNoProb = toProbability(pick.no_odds);
+            const yesProb =
+              explicitYesProb ??
+              (isYes && suggestedProb !== null
+                ? suggestedProb
+                : !isYes && suggestedProb !== null
+                  ? Math.max(0, Math.min(1, 1 - suggestedProb))
+                  : null);
+            const noProb =
+              explicitNoProb ??
+              (yesProb !== null
+                ? Math.max(0, Math.min(1, 1 - yesProb))
+                : !isYes && suggestedProb !== null
+                  ? suggestedProb
+                  : null);
+
+            const yesOdds = formatOdds(yesProb);
+            const noOdds = formatOdds(noProb);
+            const selectedPrice = isYes ? yesOdds : noOdds;
             const scoreColor = pick.relevance_score >= 8 ? "var(--green)" : pick.relevance_score >= 5 ? "#FFB800" : "var(--text-dim)";
             const platform = pick.platform || 'Polymarket';
             return (
@@ -67,15 +265,23 @@ export default function ResultsPanel({ data }) {
                     <div style={styles.question}>{pick.question}</div>
                     <div style={{ ...styles.score, color: scoreColor }}>{pick.relevance_score}/10</div>
                   </div>
-                  <p style={styles.oneLiner}>{pick.one_liner}</p>
+                    <div style={styles.whyRow}>
+                      <span style={styles.whyLabel}>WHY</span>
+                      <span style={styles.whyText}>{compactLine(pick.one_liner, 96)}</span>
+                    </div>
                   <div style={styles.bottomRow}>
                     <span style={styles.platformBadge}>{platform}</span>
+                    <span style={styles.oddsGroup}>
+                      <span style={styles.oddsLabel}>Odds</span>
+                      <span style={styles.oddsYes}>YES {yesOdds}</span>
+                      <span style={styles.oddsNo}>NO {noOdds}</span>
+                    </span>
                     <span style={{
                       ...styles.position,
                       background: isYes ? "var(--green-light)" : "var(--red-light)",
                       color: isYes ? "var(--green)" : "var(--red)",
                     }}>
-                      {pick.suggested_position} @ {price}
+                      {pick.suggested_position} @ {selectedPrice}
                     </span>
                     {pick.volume && <span style={styles.vol}>Vol: ${Number(pick.volume).toLocaleString()}</span>}
                     {pick.marketUrl && (
@@ -115,8 +321,65 @@ const styles = {
   },
   question: { fontSize: 13, fontWeight: 600, lineHeight: 1.4, flex: 1 },
   score: { fontSize: 13, fontWeight: 700, flexShrink: 0, fontFamily: "'DM Mono', monospace" },
-  oneLiner: { fontSize: 12, color: "var(--text-mid)", lineHeight: 1.5, fontStyle: "italic", margin: "6px 0 8px" },
+  whyRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    margin: "6px 0 8px",
+  },
+  whyLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    fontFamily: "'DM Mono', monospace",
+    color: "var(--text-dim)",
+    letterSpacing: 0.8,
+  },
+  whyText: {
+    fontSize: 11,
+    color: "var(--text-mid)",
+    lineHeight: 1.3,
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 99,
+    padding: "3px 8px",
+  },
   bottomRow: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
+  oddsGroup: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 6,
+    padding: "2px 4px",
+    borderRadius: 99,
+    border: "1px solid var(--border)",
+    background: "var(--surface)",
+  },
+  oddsLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.6,
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono', monospace",
+    textTransform: "uppercase",
+    padding: "0 4px",
+  },
+  oddsYes: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--green)",
+    background: "var(--green-light)",
+    borderRadius: 99,
+    padding: "2px 7px",
+    fontFamily: "'DM Mono', monospace",
+  },
+  oddsNo: {
+    fontSize: 10,
+    fontWeight: 700,
+    color: "var(--red)",
+    background: "var(--red-light)",
+    borderRadius: 99,
+    padding: "2px 7px",
+    fontFamily: "'DM Mono', monospace",
+  },
   platformBadge: { 
     fontSize: 10, 
     padding: "3px 8px", 
@@ -136,7 +399,106 @@ const styles = {
     padding: "16px 18px", marginBottom: 20,
   },
   agentTitle: { fontSize: 12, fontWeight: 700, color: "var(--blue)", marginBottom: 10, letterSpacing: 0.5 },
-  agentContent: { fontSize: 13, color: "var(--text)", lineHeight: 1.6, whiteSpace: "pre-wrap" },
+  quickTakeRow: {
+    display: "flex",
+    alignItems: "center",
+    gap: 8,
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    padding: "8px 10px",
+    marginBottom: 10,
+  },
+  quickTakePill: {
+    padding: "3px 7px",
+    borderRadius: 99,
+    background: "var(--blue-light)",
+    border: "1px solid var(--border)",
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: "var(--blue)",
+    fontFamily: "'DM Mono', monospace",
+  },
+  quickTakeInline: {
+    fontSize: 12,
+    fontWeight: 600,
+    color: "var(--text)",
+    lineHeight: 1.4,
+    minWidth: 0,
+    overflow: "hidden",
+    textOverflow: "ellipsis",
+    whiteSpace: "nowrap",
+  },
+  agentGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
+    gap: 10,
+  },
+  agentBlock: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 10,
+    padding: "10px 12px",
+  },
+  agentBlockTitle: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "var(--text-dim)",
+    marginBottom: 6,
+    fontFamily: "'DM Mono', monospace",
+  },
+  agentChips: {
+    display: "flex",
+    flexWrap: "wrap",
+    gap: 6,
+  },
+  agentChip: {
+    fontSize: 11,
+    padding: "4px 8px",
+    borderRadius: 99,
+    background: "var(--blue-light)",
+    color: "var(--text)",
+    border: "1px solid var(--border)",
+    fontWeight: 600,
+    lineHeight: 1.2,
+  },
+  agentChipRisk: {
+    fontSize: 11,
+    padding: "4px 8px",
+    borderRadius: 99,
+    background: "var(--red-light)",
+    color: "var(--red)",
+    border: "1px solid rgba(255,77,106,0.25)",
+    fontWeight: 600,
+    lineHeight: 1.2,
+  },
+  agentChipAngle: {
+    fontSize: 11,
+    padding: "4px 8px",
+    borderRadius: 99,
+    background: "var(--green-light)",
+    color: "var(--green)",
+    border: "1px solid rgba(0,196,140,0.25)",
+    fontWeight: 600,
+    lineHeight: 1.2,
+  },
+  agentConfidence: {
+    marginTop: 10,
+    display: "inline-flex",
+    alignItems: "center",
+    fontSize: 11,
+    fontWeight: 700,
+    fontFamily: "'DM Mono', monospace",
+    color: "var(--blue)",
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 99,
+    padding: "4px 10px",
+  },
   mappingSection: {
     background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12,
     padding: "16px 18px", marginBottom: 20,

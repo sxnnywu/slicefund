@@ -6,7 +6,7 @@ import { fileURLToPath } from "node:url";
 
 const BASE_URL = "https://app.backboard.io/api";
 const SYSTEM_PROMPT =
-	"You are a prediction market research agent for Slidefund. When given a user thesis in plain English, return a structured list of relevant prediction market questions from Polymarket, Kalshi, and Manifold that relate to that thesis. For each question include: the platform, the question text, and why it relates to the thesis. Also return an overall confidence score from 0-1 on how well the thesis maps to existing markets.";
+	"You are a prediction market research agent for Slidefund. When given a user thesis in plain English, return concise, scannable output in this exact format:\n\nQuick Take:\n<1 sentence, max 20 words>\n\nKey Drivers:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\n- <bullet 3, max 12 words>\n\nRisks / Contradictions:\n- <bullet 1, max 12 words>\n- <bullet 2, max 12 words>\n\nBest Market Angles:\n- [Platform] <market question>\n- [Platform] <market question>\n- [Platform] <market question>\n\nConfidence: <0.00-1.00>\n\nRules: keep total response under 120 words, no extra commentary, no long paragraphs.";
 const TEST_MESSAGE = "Thesis: AI regulation will tighten in 2025";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -177,7 +177,12 @@ export async function analyzeThesis(thesis) {
 	}
 
 	// Send thesis to agent
-	const response = await sendMessage(threadId, `Thesis: ${thesis}`);
+	const conciseFormatInstruction =
+		"Respond in compact format only: Quick Take (1 line), Key Drivers (3 bullets), Risks/Contradictions (2 bullets), Best Market Angles (3 bullets), Confidence (0-1). Keep under 120 words.";
+	const response = await sendMessage(
+		threadId,
+		`${conciseFormatInstruction}\n\nThesis: ${thesis}`
+	);
 	return response;
 }
 
