@@ -387,18 +387,47 @@ function normalizeManifoldMarket(market) {
 }
 
 async function fetchKalshiMarkets(params = {}) {
-  const response = await axios.get(`${KALSHI_MARKET_DATA_BASE_URL}/markets`, {
-    params: {
-      limit: 200,
-      status: "open",
-      mve_filter: "exclude",
-      ...params,
-    },
-    timeout: 10000,
-  });
+  const requestedLimit = Number.parseInt(params.limit, 10);
+  const safeLimit = Number.isFinite(requestedLimit)
+    ? Math.max(1, Math.min(requestedLimit, 500))
+    : 200;
 
-  const rawMarkets = Array.isArray(response.data?.markets) ? response.data.markets : [];
-  return rawMarkets.map(normalizeKalshiMarket).filter(Boolean);
+  const baseParams = {
+    limit: safeLimit,
+    status: "open",
+    ...params,
+  };
+
+  delete baseParams.mve_filter;
+
+  try {
+    const response = await axios.get(`${KALSHI_MARKET_DATA_BASE_URL}/markets`, {
+      params: baseParams,
+      timeout: 10000,
+    });
+
+    const rawMarkets = Array.isArray(response.data?.markets) ? response.data.markets : [];
+    return rawMarkets.map(normalizeKalshiMarket).filter(Boolean);
+  } catch (error) {
+    if (error?.response?.status !== 400) {
+      throw error;
+    }
+
+    const fallbackParams = {
+      limit: Math.min(safeLimit, 200),
+      status: "open",
+    };
+
+    console.warn(`[Kalshi] Upstream rejected params ${JSON.stringify(baseParams)}. Retrying with ${JSON.stringify(fallbackParams)}.`);
+
+    const fallbackResponse = await axios.get(`${KALSHI_MARKET_DATA_BASE_URL}/markets`, {
+      params: fallbackParams,
+      timeout: 10000,
+    });
+
+    const rawMarkets = Array.isArray(fallbackResponse.data?.markets) ? fallbackResponse.data.markets : [];
+    return rawMarkets.map(normalizeKalshiMarket).filter(Boolean);
+  }
 }
 
 // --- Helper: call Gemini with retry ---
@@ -1483,9 +1512,11 @@ app.post("/api/analyze", async (req, res) => {
 // Direct Polymarket browse endpoint (no AI needed)
 app.get("/api/polymarket/trending", async (req, res) => {
   try {
+    const requestedLimit = Number.parseInt(req.query._limit ?? req.query.limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 500)) : 20;
     const response = await axios.get("https://gamma-api.polymarket.com/markets", {
       params: {
-        _limit: 20,
+        _limit: limit,
         closed: false,
         active: true,
         _sort: "volume",
@@ -1588,12 +1619,13 @@ app.get("/api/kalshi/search", async (req, res) => {
 
 app.get("/api/manifold/trending", async (req, res) => {
   try {
-    const limit = parseInt(req.query.limit) || 100;
+    const requestedLimit = Number.parseInt(req.query.limit ?? req.query._limit, 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.max(1, Math.min(requestedLimit, 500)) : 100;
     const apiLimit = Math.min(limit * 2, 500); // Fetch more to account for filtering
 
     const response = await axios.get("https://api.manifold.markets/v0/markets", {
       params: {
-        limit: 100,
+        limit: apiLimit,
       },
       timeout: 10000,
     });
@@ -1614,7 +1646,7 @@ app.get("/api/manifold/trending", async (req, res) => {
         creatorUsername: m.creatorUsername,
       }))
       .sort((a, b) => b.liquidity - a.liquidity)
-      .slice(0, 20);
+      .slice(0, limit);
     
     res.json({ markets, count: markets.length });
   } catch (err) {
