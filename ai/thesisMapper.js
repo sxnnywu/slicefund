@@ -9,7 +9,6 @@ const projectRoot = path.resolve(__dirname, "..");
 const envPath = path.join(projectRoot, ".env");
 
 const MODEL_NAME = "gemini-2.5-flash-lite";
-const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash-lite", "gemini-2.0-flash", "gemini-flash-latest"];
 const FUNCTION_NAME = "map_thesis_to_markets";
 const BASE_PROMPT =
   "You are a prediction market analyst. Given this thesis, identify the most relevant prediction market questions that would collectively represent this thesis as an index fund basket. Return questions from Polymarket, Kalshi, and Manifold. Thesis:";
@@ -158,36 +157,19 @@ export async function mapThesisToMarkets(thesis) {
       const { result } = await generateWithModel(client, MODEL_NAME, prompt);
       return extractMappedResult(result.response, thesis);
     } catch (error) {
+      if (isQuotaExceededError(error)) {
+        throw new Error(
+          `Gemini quota exceeded or billing is not enabled for this API key. ${error.message}`
+        );
+      }
+
       if (!isModelNotFoundError(error)) {
         throw error;
       }
 
-      console.error(
-        `[mapThesisToMarkets] Model ${MODEL_NAME} unavailable for this API key/version. Trying fallbacks...`
+      throw new Error(
+        `Gemini model ${MODEL_NAME} is unavailable for this API key/version. ${error.message}`
       );
-
-      let lastError = error;
-
-      for (const fallbackModel of FALLBACK_MODELS) {
-        try {
-          const { result, modelName } = await generateWithModel(client, fallbackModel, prompt);
-          console.log(`[mapThesisToMarkets] Using fallback model: ${modelName}`);
-          return extractMappedResult(result.response, thesis);
-        } catch (fallbackError) {
-          if (isQuotaExceededError(fallbackError)) {
-            throw new Error(
-              `Gemini quota exceeded or billing is not enabled for this API key. ${fallbackError.message}`
-            );
-          }
-
-          lastError = fallbackError;
-          console.error(
-            `[mapThesisToMarkets] Fallback model ${fallbackModel} failed: ${fallbackError.message}`
-          );
-        }
-      }
-
-      throw lastError;
     }
   } catch (error) {
     console.error(`[mapThesisToMarkets] Failed to map thesis: ${error.message}`);

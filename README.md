@@ -14,7 +14,7 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
 - `IndexRebalancer` — monitors ETF basket NAV drift and triggers rebalance when weights shift >5%
 - `AlertDispatcher` — formats confirmed arb alerts for the frontend feed
 
-**Gemini function calling** — (`gemini-2.5-flash-lite` with fallback handling) for:
+**Gemini function calling** — (`gemini-2.5-flash-lite`) for:
 - `thesisMapper` — thesis to market question mapping with confidence scoring
 - `arbScorer` — arb risk assessment with spread calculation and urgency scoring
 
@@ -42,7 +42,6 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
   - `thesisMapper.js` — thesis → market basket mapping ✅ **live and tested**
   - `arbScorer.js` — arbitrage opportunity scoring ✅ **live and tested**
   - Function calling with structured output
-  - Model fallback handling
 
 - **Frontend Auth0 gate** (`client/`)
   - `Auth0Provider` wired in `main.jsx`

@@ -10,7 +10,7 @@ const envPath = path.join(projectRoot, ".env");
 
 dotenv.config({ path: envPath });
 
-const MODEL_NAME = "gemini-2.0-flash-lite";
+const MODEL_NAME = "gemini-2.5-flash-lite";
 
 const RELATIONSHIP_TYPES = [
   "CAUSES", // A implies B will happen

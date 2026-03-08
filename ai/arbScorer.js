@@ -9,7 +9,6 @@ const projectRoot = path.resolve(__dirname, "..");
 const envPath = path.join(projectRoot, ".env");
 
 const MODEL_NAME = "gemini-2.5-flash-lite";
-const FALLBACK_MODELS = ["gemini-2.5-flash", "gemini-flash-latest"];
 const FUNCTION_NAME = "score_arb_opportunity";
 const BASE_PROMPT =
   "You are a prediction market arbitrage analyst. You have detected a price discrepancy on the same underlying question across two platforms. Analyze whether this is a genuine arbitrage opportunity or if the price difference has a legitimate explanation such as recent news, liquidity differences, or platform-specific factors.";
@@ -177,36 +176,19 @@ export async function scoreArbOpportunity(
       const { result } = await generateWithModel(client, MODEL_NAME, prompt);
       return extractScoredResult(result.response);
     } catch (error) {
+      if (isQuotaExceededError(error)) {
+        throw new Error(
+          `Gemini quota exceeded or billing is not enabled for this API key. ${error.message}`
+        );
+      }
+
       if (!isModelNotFoundError(error)) {
         throw error;
       }
 
-      console.error(
-        `[scoreArbOpportunity] Model ${MODEL_NAME} unavailable for this API key/version. Trying fallbacks...`
+      throw new Error(
+        `Gemini model ${MODEL_NAME} is unavailable for this API key/version. ${error.message}`
       );
-
-      let lastError = error;
-
-      for (const fallbackModel of FALLBACK_MODELS) {
-        try {
-          const { result, modelName } = await generateWithModel(client, fallbackModel, prompt);
-          console.log(`[scoreArbOpportunity] Using fallback model: ${modelName}`);
-          return extractScoredResult(result.response);
-        } catch (fallbackError) {
-          if (isQuotaExceededError(fallbackError)) {
-            throw new Error(
-              `Gemini quota exceeded or billing is not enabled for this API key. ${fallbackError.message}`
-            );
-          }
-
-          lastError = fallbackError;
-          console.error(
-            `[scoreArbOpportunity] Fallback model ${fallbackModel} failed: ${fallbackError.message}`
-          );
-        }
-      }
-
-      throw lastError;
     }
   } catch (error) {
     console.error(`[scoreArbOpportunity] Failed to score arbitrage opportunity: ${error.message}`);

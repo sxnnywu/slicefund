@@ -136,12 +136,7 @@ app.use((req, res, next) => {
 
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
-const GEMINI_MODEL_CANDIDATES = [
-  "gemini-2.0-flash-lite",
-  "gemini-2.5-flash",
-  "gemini-2.5-flash-lite",
-  "gemini-flash-latest",
-];
+const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
 
 function isGeminiPermanentFailure(message) {
   const normalized = String(message || "").toLowerCase();
@@ -278,13 +273,10 @@ async function fetchKalshiMarkets(params = {}) {
 }
 
 // --- Helper: call Gemini with retry ---
-async function geminiCall(prompt, retries = GEMINI_MODEL_CANDIDATES.length) {
+async function geminiCall(prompt, retries = 3) {
   for (let i = 0; i < retries; i++) {
     try {
-      const modelName = GEMINI_MODEL_CANDIDATES[
-        Math.min(i, GEMINI_MODEL_CANDIDATES.length - 1)
-      ];
-      const model = genAI.getGenerativeModel({ model: modelName });
+      const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_NAME });
       const result = await model.generateContent(prompt);
       return result.response.text().trim();
     } catch (err) {
