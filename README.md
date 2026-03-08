@@ -14,7 +14,7 @@ Slidefund allows users to express a thesis in plain English (e.g., "AI regulatio
 - `IndexRebalancer` — monitors ETF basket NAV drift and triggers rebalance when weights shift >5%
 - `AlertDispatcher` — formats confirmed arb alerts for the frontend feed
 
-**Gemini function calling** — (`gemini-2.5-flash` with fallback handling) for:
+**Gemini function calling** — (`gemini-2.5-flash-lite` with fallback handling) for:
 - `thesisMapper` — thesis to market question mapping with confidence scoring
 - `arbScorer` — arb risk assessment with spread calculation and urgency scoring
 

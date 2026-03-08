@@ -235,7 +235,7 @@ async function fetchKalshiMarkets(params = {}) {
 
 // --- Helper: call Gemini with retry ---
 async function geminiCall(prompt, retries = 3) {
-  const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
   for (let i = 0; i < retries; i++) {
     try {
       const result = await model.generateContent(prompt);
