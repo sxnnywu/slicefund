@@ -155,6 +155,32 @@ export async function saveIds(assistantId, threadId) {
 }
 
 /**
+ * Check if error is a Backboard 404 not found error (thread or assistant)
+ */
+function isBackboardNotFound(error) {
+	const status = error?.response?.status;
+	const detail = error?.response?.data?.detail;
+	if (status !== 404 || typeof detail !== "string") return false;
+	const lowerDetail = detail.toLowerCase();
+	return lowerDetail.includes("thread not found") || lowerDetail.includes("assistant not found");
+}
+
+/**
+ * Create a fresh assistant + thread session for thesis research
+ */
+async function createFreshThesisSession() {
+	console.log("[thesis] Creating fresh researcher session...");
+	const newAssistantId = await createAssistant();
+	const newThreadId = await createThread(newAssistantId);
+	
+	// Update environment variables
+	process.env.THESIS_RESEARCHER_ASSISTANT_ID = newAssistantId;
+	process.env.THESIS_RESEARCHER_THREAD_ID = newThreadId;
+	
+	return { assistantId: newAssistantId, threadId: newThreadId };
+}
+
+/**
  * Analyze a thesis using the ThesisResearcher agent
  * Returns the agent's response with market recommendations
  */
@@ -162,28 +188,67 @@ export async function analyzeThesis(thesis) {
 	let assistantId = process.env.THESIS_RESEARCHER_ASSISTANT_ID;
 	let threadId = process.env.THESIS_RESEARCHER_THREAD_ID;
 
-	// Create or reuse assistant
+	// Ensure assistant exists
 	if (!assistantId) {
 		assistantId = await createAssistant();
-		threadId = await createThread(assistantId);
-		await saveIds(assistantId, threadId);
 		process.env.THESIS_RESEARCHER_ASSISTANT_ID = assistantId;
-		process.env.THESIS_RESEARCHER_THREAD_ID = threadId;
 	}
 
-	// Create thread if missing
-	if (!threadId) {
+	// Always create a fresh thread per analysis to avoid stale thread issues
+	let createdThread = false;
+	try {
 		threadId = await createThread(assistantId);
+		createdThread = true;
+		process.env.THESIS_RESEARCHER_THREAD_ID = threadId;
+	} catch (error) {
+		// If assistant is stale (404 Assistant not found), recreate
+		if (isBackboardNotFound(error)) {
+			console.log("[analyzeThesis] Stale assistant detected, creating fresh one...");
+			assistantId = await createAssistant();
+			process.env.THESIS_RESEARCHER_ASSISTANT_ID = assistantId;
+			
+			threadId = await createThread(assistantId);
+			createdThread = true;
+			process.env.THESIS_RESEARCHER_THREAD_ID = threadId;
+		} else {
+			logAxiosError("createThread", error);
+			throw error;
+		}
 	}
 
 	// Send thesis to agent
 	const conciseFormatInstruction =
 		"Respond in compact plain text only: Quick Take on one line, then Key Drivers (3 bullets), Risks / Contradictions (2 bullets), Best Market Angles (3 bullets), Confidence (0-1). No markdown, no bold, and do not repeat labels inside bullet text. Keep under 120 words.";
-	const response = await sendMessage(
-		threadId,
-		`${conciseFormatInstruction}\n\nThesis: ${thesis}`
-	);
-	return response;
+	
+	try {
+		const response = await sendMessage(
+			threadId,
+			`${conciseFormatInstruction}\n\nThesis: ${thesis}`
+		);
+		return response;
+	} catch (error) {
+		// If still hitting 404 on sendMessage, try one more fresh session
+		if (isBackboardNotFound(error) && createdThread) {
+			console.log("[analyzeThesis] Thread became stale after creation, retrying with fresh session...");
+			const { assistantId: newAid, threadId: newTid } = await createFreshThesisSession();
+			
+			try {
+				const response = await sendMessage(
+					newTid,
+					`${conciseFormatInstruction}\n\nThesis: ${thesis}`
+				);
+				return response;
+			} catch (retryError) {
+				console.error("[analyzeThesis] Retry failed after fresh session:");
+				logAxiosError("analyzeThesis", retryError);
+				throw retryError;
+			}
+		}
+		
+		// Not a 404 or already retried, propagate other errors
+		logAxiosError("analyzeThesis", error);
+		throw error;
+	}
 }
 
 export async function main() {

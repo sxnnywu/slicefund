@@ -160,5 +160,62 @@
       "target_weight": 0.3333333333333333
     },
     "createdAt": "2026-03-08T06:40:05.195Z"
+  },
+  {
+    "id": "pm-1772952983332-c8c29710",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "ZDKKO2cLAgFT2DPmTvKINIlIBGnv83Rf2m7NWp1e85rupU9KrsyxTrtgy6gpZtIIA42UTovwLxJNBal5SMRdCA==",
+    "market": "BitBoy convicted?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.269,
+    "size": 6.43333333333333,
+    "status": "FILLED",
+    "filledSize": 6.43333333333333,
+    "avgPrice": 0.269,
+    "source": "mock_basket",
+    "metadata": {
+      "adjustment_pct": 0.0643333333333333,
+      "urgency": null
+    },
+    "createdAt": "2026-03-08T06:56:23.333Z"
+  },
+  {
+    "id": "pm-1772952983333-536abc0c",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "ZDKKO2cLAgFT2DPmTvKINIlIBGnv83Rf2m7NWp1e85rupU9KrsyxTrtgy6gpZtIIA42UTovwLxJNBal5SMRdCA==",
+    "market": "Russia-Ukraine Ceasefire before GTA VI?",
+    "platform": "Polymarket",
+    "side": "SELL",
+    "price": 0.54,
+    "size": 20.66666666666667,
+    "status": "FILLED",
+    "filledSize": 20.66666666666667,
+    "avgPrice": 0.54,
+    "source": "mock_basket",
+    "metadata": {
+      "adjustment_pct": 0.20666666666666672,
+      "urgency": null
+    },
+    "createdAt": "2026-03-08T06:56:23.333Z"
+  },
+  {
+    "id": "pm-1772952983333-55c4dc06",
+    "walletAddress": "EHthnUF86bbwVKsnbDaFrrerBbXpFbm2SVSr6TZjVRtX",
+    "solanaSignature": "ZDKKO2cLAgFT2DPmTvKINIlIBGnv83Rf2m7NWp1e85rupU9KrsyxTrtgy6gpZtIIA42UTovwLxJNBal5SMRdCA==",
+    "market": "New Rihanna Album before GTA VI?",
+    "platform": "Polymarket",
+    "side": "SELL",
+    "price": 0.54,
+    "size": 20.66666666666667,
+    "status": "FILLED",
+    "filledSize": 20.66666666666667,
+    "avgPrice": 0.54,
+    "source": "mock_basket",
+    "metadata": {
+      "adjustment_pct": 0.20666666666666672,
+      "urgency": null
+    },
+    "createdAt": "2026-03-08T06:56:23.333Z"
   }
 ]
