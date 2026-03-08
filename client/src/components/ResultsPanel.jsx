@@ -216,7 +216,7 @@ export default function ResultsPanel({ data }) {
         <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>No relevant markets found.</div>
       ) : (
         <div>
-          <div style={styles.sectionTitle}>🎯 Top Market Picks</div>
+          <div style={styles.sectionTitle}>Top Market Picks</div>
           {picks.map((pick, i) => {
             const pickKey = pick.id || i;
             const isYes = pick.suggested_position === "YES";
@@ -248,7 +248,18 @@ export default function ResultsPanel({ data }) {
             const platform = pick.platform || 'Polymarket';
             return (
               <div key={pickKey} style={styles.row}>
-                <div style={styles.rank}>#{i + 1}</div>
+                <div
+                  style={{
+                    ...styles.rank,
+                    ...(pick.image
+                      ? {
+                          backgroundImage: `linear-gradient(rgba(11,17,38,0.58), rgba(11,17,38,0.58)), url(${pick.image})`,
+                        }
+                      : {}),
+                  }}
+                >
+                  #{i + 1}
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div style={styles.question}>{pick.question}</div>
@@ -321,8 +332,22 @@ const styles = {
     display: "flex", gap: 14, padding: "16px 0", borderBottom: "1px solid var(--border2)",
   },
   rank: {
-    width: 32, height: 32, borderRadius: 8, background: "var(--blue)", color: "#fff",
-    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    background: "var(--blue)",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    fontSize: 13,
+    flexShrink: 0,
+    textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    boxShadow: "0 6px 16px rgba(11,17,38,0.14)",
   },
   question: { fontSize: 13, fontWeight: 600, lineHeight: 1.4, flex: 1 },
   score: { fontSize: 13, fontWeight: 700, flexShrink: 0, fontFamily: "'DM Mono', monospace" },
