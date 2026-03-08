@@ -190,7 +190,7 @@ async function fetchLiveArbCandidates() {
   return buildLiveOpportunities(allMarkets);
 }
 
-export default function PanelArb() {
+export default function PanelArb({ progress, onStartProgress, onStopProgress }) {
   const [arbs, setArbs] = useState([]);
   const [isScanning, setIsScanning] = useState(false);
   const [error, setError] = useState(null);
@@ -203,6 +203,7 @@ export default function PanelArb() {
   const runScans = useCallback(async () => {
     setIsScanning(true);
     setError(null);
+    if (onStartProgress) onStartProgress();
 
     try {
       const candidates = await fetchLiveArbCandidates();
@@ -236,8 +237,9 @@ export default function PanelArb() {
       setArbs([]);
     } finally {
       setIsScanning(false);
+      if (onStopProgress) onStopProgress();
     }
-  }, []);
+  }, [onStartProgress, onStopProgress]);
 
   const handleExecute = useCallback(async (alert) => {
     if (!alert) return;
@@ -312,6 +314,40 @@ export default function PanelArb() {
           {isScanning ? "Scanning live Polymarket/Kalshi/Manifold markets..." : `${liveCount} live opportunities detected`}
         </p>
       </div>
+
+      {isScanning && progress?.steps && (
+        <div style={s.progressWrap}>
+          <div style={s.progressTitle}>AI Agent Progress</div>
+          <div style={s.progressRow}>
+            {progress.steps.map((step, index) => (
+              <div key={index} style={s.progressItem}>
+                <div
+                  style={{
+                    ...s.progressDot,
+                    ...(index < progress.currentStep
+                      ? s.progressDotDone
+                      : index === progress.currentStep
+                        ? s.progressDotActive
+                        : s.progressDotIdle),
+                  }}
+                >
+                  {index < progress.currentStep ? "✓" : index === progress.currentStep ? "⟳" : index + 1}
+                </div>
+                <div
+                  style={{
+                    ...s.progressText,
+                    ...(index <= progress.currentStep
+                      ? s.progressTextActive
+                      : s.progressTextIdle),
+                  }}
+                >
+                  {step}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={s.statRow}>
         {[
@@ -522,5 +558,69 @@ const s = {
     textDecoration: "none",
     fontFamily: "'DM Mono',monospace",
     background: "var(--surface)",
+  },
+  progressWrap: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 16,
+    padding: "20px 24px",
+    marginBottom: 24,
+    boxShadow: "var(--shadow)",
+  },
+  progressTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    marginBottom: 16,
+  },
+  progressRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  progressItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  progressDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 50,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: 13,
+    flexShrink: 0,
+  },
+  progressDotDone: {
+    background: "rgba(0,196,140,0.15)",
+    color: "var(--green)",
+    border: "1px solid rgba(0,196,140,0.3)",
+  },
+  progressDotActive: {
+    background: "rgba(26,92,255,0.15)",
+    color: "var(--blue)",
+    border: "1px solid rgba(26,92,255,0.3)",
+    animation: "spin 1s linear infinite",
+  },
+  progressDotIdle: {
+    background: "rgba(255,255,255,0.05)",
+    color: "var(--text-dim)",
+    border: "1px solid var(--border)",
+  },
+  progressText: {
+    fontSize: 13,
+    fontWeight: 500,
+    transition: "color 0.2s",
+  },
+  progressTextActive: {
+    color: "var(--text)",
+  },
+  progressTextIdle: {
+    color: "var(--text-dim)",
   },
 };

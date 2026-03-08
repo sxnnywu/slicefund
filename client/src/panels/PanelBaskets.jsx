@@ -201,7 +201,7 @@ async function checkRebalance(basket) {
   }
 }
 
-export default function PanelBaskets() {
+export default function PanelBaskets({ progress, onStartProgress, onStopProgress }) {
   const [liveBaskets, setLiveBaskets] = useState([]);
   const [customBaskets, setCustomBaskets] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -266,9 +266,11 @@ export default function PanelBaskets() {
   const handleCheckRebalance = async (basket) => {
     setIsChecking(true);
     setSelectedBasket(basket);
+    if (onStartProgress) onStartProgress();
     const data = await checkRebalance(basket);
     setRebalanceData(data);
     setIsChecking(false);
+    if (onStopProgress) onStopProgress();
   };
 
   const handleExecute = async () => {
@@ -382,6 +384,40 @@ export default function PanelBaskets() {
           </p>
         </div>
       </div>
+
+      {isChecking && progress?.steps && (
+        <div style={s.progressWrap}>
+          <div style={s.progressTitle}>AI Agent Progress</div>
+          <div style={s.progressRow}>
+            {progress.steps.map((step, index) => (
+              <div key={index} style={s.progressItem}>
+                <div
+                  style={{
+                    ...s.progressDot,
+                    ...(index < progress.currentStep
+                      ? s.progressDotDone
+                      : index === progress.currentStep
+                        ? s.progressDotActive
+                        : s.progressDotIdle),
+                  }}
+                >
+                  {index < progress.currentStep ? "✓" : index === progress.currentStep ? "⟳" : index + 1}
+                </div>
+                <div
+                  style={{
+                    ...s.progressText,
+                    ...(index <= progress.currentStep
+                      ? s.progressTextActive
+                      : s.progressTextIdle),
+                  }}
+                >
+                  {step}
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div style={s.statRow}>
         {[
@@ -576,5 +612,69 @@ const s = {
     textDecoration: "none",
     fontFamily: "'DM Mono',monospace",
     background: "var(--surface)",
+  },
+  progressWrap: {
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 16,
+    padding: "20px 24px",
+    marginBottom: 24,
+    boxShadow: "var(--shadow)",
+  },
+  progressTitle: {
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: 1,
+    color: "var(--text-dim)",
+    textTransform: "uppercase",
+    marginBottom: 16,
+  },
+  progressRow: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 12,
+  },
+  progressItem: {
+    display: "flex",
+    alignItems: "center",
+    gap: 12,
+  },
+  progressDot: {
+    width: 32,
+    height: 32,
+    borderRadius: 50,
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 700,
+    fontSize: 13,
+    flexShrink: 0,
+  },
+  progressDotDone: {
+    background: "rgba(0,196,140,0.15)",
+    color: "var(--green)",
+    border: "1px solid rgba(0,196,140,0.3)",
+  },
+  progressDotActive: {
+    background: "rgba(26,92,255,0.15)",
+    color: "var(--blue)",
+    border: "1px solid rgba(26,92,255,0.3)",
+    animation: "spin 1s linear infinite",
+  },
+  progressDotIdle: {
+    background: "rgba(255,255,255,0.05)",
+    color: "var(--text-dim)",
+    border: "1px solid var(--border)",
+  },
+  progressText: {
+    fontSize: 13,
+    fontWeight: 500,
+    transition: "color 0.2s",
+  },
+  progressTextActive: {
+    color: "var(--text)",
+  },
+  progressTextIdle: {
+    color: "var(--text-dim)",
   },
 };
