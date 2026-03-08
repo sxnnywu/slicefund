@@ -2,15 +2,84 @@ import React from "react";
 import { useAuth0 } from "@auth0/auth0-react";
 
 const NAV = [
-  { id: "home", label: "Dashboard", icon: "▦" },
-  { id: "thesis", label: "Thesis Search", icon: "⌕", badge: "NEW" },
-  { id: "baskets", label: "My Baskets", icon: "📈" },
-  { id: "markets", label: "All Markets", icon: "📊" },
+  { id: "home", label: "Dashboard", icon: "grid" },
+  { id: "thesis", label: "Thesis Search", icon: "search"},
+  { id: "baskets", label: "My Baskets", icon: "stack" },
+  { id: "markets", label: "All Markets", icon: "bars" },
 ];
 const TOOLS = [
-  { id: "arb", label: "Arb Scanner", icon: "⚡", badge: "3" },
-  { id: "index", label: "Index Builder", icon: "⊞" },
+  { id: "arb", label: "Arb Scanner", icon: "bolt", badge: "3" },
+  { id: "index", label: "Index Builder", icon: "plusGrid" },
 ];
+
+function SidebarIcon({ name, active = false }) {
+  const color = active ? "var(--blue)" : "currentColor";
+  const common = {
+    width: 16,
+    height: 16,
+    viewBox: "0 0 16 16",
+    fill: "none",
+    xmlns: "http://www.w3.org/2000/svg",
+    "aria-hidden": true,
+  };
+  const strokeProps = {
+    stroke: color,
+    strokeWidth: 1.6,
+    strokeLinecap: "round",
+    strokeLinejoin: "round",
+  };
+
+  switch (name) {
+    case "search":
+      return (
+        <svg {...common}>
+          <circle cx="7" cy="7" r="3.75" {...strokeProps} />
+          <path d="M10.2 10.2L13 13" {...strokeProps} />
+        </svg>
+      );
+    case "stack":
+      return (
+        <svg {...common}>
+          <path d="M3 5.5L8 3l5 2.5L8 8 3 5.5Z" {...strokeProps} />
+          <path d="M4.5 8L8 9.8 11.5 8" {...strokeProps} />
+          <path d="M4.5 10.6L8 12.4l3.5-1.8" {...strokeProps} />
+        </svg>
+      );
+    case "bars":
+      return (
+        <svg {...common}>
+          <path d="M3 12.5V8.5" {...strokeProps} />
+          <path d="M8 12.5V4.5" {...strokeProps} />
+          <path d="M13 12.5V6.5" {...strokeProps} />
+        </svg>
+      );
+    case "bolt":
+      return (
+        <svg {...common}>
+          <path d="M9.2 2.5L4.8 8.2h2.7l-.7 5.3 4.4-5.7H8.5l.7-5.3Z" {...strokeProps} />
+        </svg>
+      );
+    case "plusGrid":
+      return (
+        <svg {...common}>
+          <rect x="2.75" y="2.75" width="4.5" height="4.5" rx="1" {...strokeProps} />
+          <rect x="8.75" y="8.75" width="4.5" height="4.5" rx="1" {...strokeProps} />
+          <path d="M11 2.75v4.5" {...strokeProps} />
+          <path d="M8.75 5h4.5" {...strokeProps} />
+        </svg>
+      );
+    case "grid":
+    default:
+      return (
+        <svg {...common}>
+          <rect x="2.5" y="2.5" width="4.25" height="4.25" rx="1" {...strokeProps} />
+          <rect x="9.25" y="2.5" width="4.25" height="4.25" rx="1" {...strokeProps} />
+          <rect x="2.5" y="9.25" width="4.25" height="4.25" rx="1" {...strokeProps} />
+          <rect x="9.25" y="9.25" width="4.25" height="4.25" rx="1" {...strokeProps} />
+        </svg>
+      );
+  }
+}
 
 export default function Sidebar({ activePanel, onNavigate }) {
   const { user } = useAuth0();
@@ -38,7 +107,10 @@ export default function Sidebar({ activePanel, onNavigate }) {
           style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
           onClick={() => onNavigate(n.id)}
         >
-          <span>{n.icon}</span> {n.label}
+          <span style={{ ...styles.iconWrap, ...(activePanel === n.id ? styles.iconWrapActive : {}) }}>
+            <SidebarIcon name={n.icon} active={activePanel === n.id} />
+          </span>
+          {n.label}
           {n.badge && <span style={styles.badge}>{n.badge}</span>}
         </div>
       ))}
@@ -50,7 +122,10 @@ export default function Sidebar({ activePanel, onNavigate }) {
           style={{ ...styles.item, ...(activePanel === n.id ? styles.itemActive : {}) }}
           onClick={() => onNavigate(n.id)}
         >
-          <span>{n.icon}</span> {n.label}
+          <span style={{ ...styles.iconWrap, ...(activePanel === n.id ? styles.iconWrapActive : {}) }}>
+            <SidebarIcon name={n.icon} active={activePanel === n.id} />
+          </span>
+          {n.label}
           {n.badge && <span style={styles.badge}>{n.badge}</span>}
         </div>
       ))}
@@ -95,6 +170,23 @@ const styles = {
     borderRadius: 10,
     borderLeftWidth: 2, borderLeftStyle: "solid", borderLeftColor: "transparent",
     transition: "all 0.15s",
+  },
+  iconWrap: {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    border: "1px solid var(--border)",
+    background: "rgba(255,255,255,0.7)",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    color: "var(--text-dim)",
+    flexShrink: 0,
+  },
+  iconWrapActive: {
+    borderColor: "rgba(26,92,255,0.18)",
+    background: "rgba(26,92,255,0.08)",
+    color: "var(--blue)",
   },
   itemActive: {
     background: "var(--blue-light)", color: "var(--blue)", fontWeight: 600,

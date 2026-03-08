@@ -217,5 +217,87 @@
       "urgency": null
     },
     "createdAt": "2026-03-08T06:56:23.333Z"
+  },
+  {
+    "id": "pm-1772955278725-957ca404",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will Netflix reach $175 in March?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.021,
+    "size": 100,
+    "status": "FILLED",
+    "filledSize": 100,
+    "avgPrice": 0.021,
+    "source": "mock_arb",
+    "metadata": {
+      "alertId": "scan-1772955272192",
+      "payload": {
+        "type": "arb_execute",
+        "alertId": "scan-1772955272192",
+        "question": "Will Netflix reach $175 in March?",
+        "platforms": [
+          "Polymarket",
+          "Manifold"
+        ],
+        "actions": [
+          {
+            "platform": "Polymarket",
+            "action": "BUY"
+          },
+          {
+            "platform": "Manifold",
+            "action": "SELL"
+          }
+        ],
+        "priceA": 0.021,
+        "priceB": 0.336742679746037,
+        "leverage": 1,
+        "timestamp": "2026-03-08T07:34:38.717Z"
+      }
+    },
+    "createdAt": "2026-03-08T07:34:38.725Z"
+  },
+  {
+    "id": "pm-1772955278725-d6876ae0",
+    "walletAddress": null,
+    "solanaSignature": null,
+    "market": "Will Netflix reach $175 in March?",
+    "platform": "Manifold",
+    "side": "SELL",
+    "price": 0.336742679746037,
+    "size": 100,
+    "status": "FILLED",
+    "filledSize": 100,
+    "avgPrice": 0.336742679746037,
+    "source": "mock_arb",
+    "metadata": {
+      "alertId": "scan-1772955272192",
+      "payload": {
+        "type": "arb_execute",
+        "alertId": "scan-1772955272192",
+        "question": "Will Netflix reach $175 in March?",
+        "platforms": [
+          "Polymarket",
+          "Manifold"
+        ],
+        "actions": [
+          {
+            "platform": "Polymarket",
+            "action": "BUY"
+          },
+          {
+            "platform": "Manifold",
+            "action": "SELL"
+          }
+        ],
+        "priceA": 0.021,
+        "priceB": 0.336742679746037,
+        "leverage": 1,
+        "timestamp": "2026-03-08T07:34:38.717Z"
+      }
+    },
+    "createdAt": "2026-03-08T07:34:38.725Z"
   }
 ]
