@@ -1,10 +1,41 @@
-import React from "react";
+import React, { useState } from "react";
 
 function compactLine(text, maxChars = 96) {
   if (typeof text !== "string") return "";
   const clean = text.replace(/\s+/g, " ").trim();
   if (clean.length <= maxChars) return clean;
   return `${clean.slice(0, maxChars - 1).trimEnd()}…`;
+}
+
+function cleanAgentText(text) {
+  if (typeof text !== "string") return "";
+
+  return text
+    .replace(/\r/g, "")
+    .replace(/[*_`]+/g, "")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function splitInlineItems(text) {
+  return cleanAgentText(text)
+    .split(/\s*[;•]\s*|\s+-\s+/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function extractSectionBlock(text, labelPattern) {
+  const match = text.match(
+    new RegExp(
+      `(?:^|\\n)(?:${labelPattern})\\s*[:\\-]?\\s*([\\s\\S]*?)(?=\\n(?:Quick Take|Key Drivers|Risks\\s*\\/\\s*Contradictions|Risks|Contradictions|Best Market Angles|Market Angles|Confidence)\\s*[:\\-]?|$)`,
+      "i"
+    )
+  );
+
+  const block = match?.[1];
+  return typeof block === "string" ? block.trim() : "";
 }
 
 function toProbability(value) {
@@ -35,14 +66,18 @@ function normalizeAgentAnalysis(rawContent) {
 
   const cleaned = rawContent
     .replace(/\r/g, "")
+    .replace(/[*_`]+/g, "")
+    .replace(
+      /(?:^|[\s.;])((?:Quick Take|Key Drivers|Risks\s*\/\s*Contradictions|Risks|Contradictions|Best Market Angles|Market Angles|Confidence))\s*:/gi,
+      (match, label) => `\n${label}:`
+    )
+    .replace(
+      /\n\s+(Quick Take|Key Drivers|Risks\s*\/\s*Contradictions|Risks|Contradictions|Best Market Angles|Market Angles|Confidence)\s*:/gi,
+      "\n$1:"
+    )
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
-
-  const lines = cleaned
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
 
   const sections = {
     quickTake: "",
@@ -52,72 +87,36 @@ function normalizeAgentAnalysis(rawContent) {
     confidence: null,
   };
 
-  let currentSection = null;
+  const quickTakeBlock = extractSectionBlock(cleaned, "Quick Take");
+  const keyDriversBlock = extractSectionBlock(cleaned, "Key Drivers");
+  const risksBlock = extractSectionBlock(cleaned, "Risks\\s*\\/\\s*Contradictions|Risks|Contradictions");
+  const anglesBlock = extractSectionBlock(cleaned, "Best Market Angles|Market Angles");
+  const confidenceBlock = extractSectionBlock(cleaned, "Confidence");
 
-  for (const line of lines) {
-    const normalized = line.toLowerCase().replace(/[:\-]+$/g, "").trim();
+  if (quickTakeBlock) {
+    sections.quickTake = cleanAgentText(quickTakeBlock);
+  }
 
-    if (normalized.startsWith("quick take")) {
-      currentSection = "quickTake";
-      const sameLineValue = line.replace(/quick take\s*[:\-]?\s*/i, "").trim();
-      if (sameLineValue.length > 0) sections.quickTake = sameLineValue;
-      continue;
-    }
+  if (keyDriversBlock) {
+    sections.keyDrivers = splitInlineItems(keyDriversBlock);
+  }
 
-    if (normalized.startsWith("key drivers")) {
-      currentSection = "keyDrivers";
-      continue;
-    }
+  if (risksBlock) {
+    sections.risks = splitInlineItems(risksBlock);
+  }
 
-    if (normalized.includes("risks") || normalized.includes("contradictions")) {
-      currentSection = "risks";
-      continue;
-    }
+  if (anglesBlock) {
+    sections.angles = splitInlineItems(anglesBlock);
+  }
 
-    if (normalized.startsWith("best market angles") || normalized.startsWith("market angles")) {
-      currentSection = "angles";
-      continue;
-    }
-
-    if (normalized.startsWith("confidence")) {
-      const match = line.match(/(0(?:\.\d+)?|1(?:\.0+)?)|([0-9]{1,3})%/i);
-      if (match) {
-        if (match[2]) {
-          sections.confidence = Math.max(0, Math.min(1, Number(match[2]) / 100));
-        } else {
-          sections.confidence = Math.max(0, Math.min(1, Number(match[1])));
-        }
+  if (confidenceBlock) {
+    const match = cleanAgentText(confidenceBlock).match(/(0(?:\.\d+)?|1(?:\.0+)?)|([0-9]{1,3})%/i);
+    if (match) {
+      if (match[2]) {
+        sections.confidence = Math.max(0, Math.min(1, Number(match[2]) / 100));
+      } else {
+        sections.confidence = Math.max(0, Math.min(1, Number(match[1])));
       }
-      continue;
-    }
-
-    const bullet = line.replace(/^[\-•*]\s*/, "").trim();
-    if (!bullet) continue;
-
-    if (currentSection === "quickTake") {
-      if (!sections.quickTake) sections.quickTake = bullet;
-      continue;
-    }
-
-    if (currentSection === "keyDrivers") {
-      sections.keyDrivers.push(bullet);
-      continue;
-    }
-
-    if (currentSection === "risks") {
-      sections.risks.push(bullet);
-      continue;
-    }
-
-    if (currentSection === "angles") {
-      sections.angles.push(bullet);
-      continue;
-    }
-
-    if (!sections.quickTake) {
-      sections.quickTake = bullet;
-    } else {
-      sections.keyDrivers.push(bullet);
     }
   }
 
@@ -126,10 +125,10 @@ function normalizeAgentAnalysis(rawContent) {
     sections.quickTake = firstSentence ? firstSentence.trim() : cleaned.slice(0, 140);
   }
 
-  sections.quickTake = compactLine(sections.quickTake, 120);
-  sections.keyDrivers = sections.keyDrivers.map((item) => compactLine(item, 64)).slice(0, 3);
-  sections.risks = sections.risks.map((item) => compactLine(item, 64)).slice(0, 2);
-  sections.angles = sections.angles.map((item) => compactLine(item, 70)).slice(0, 3);
+  sections.quickTake = compactLine(cleanAgentText(sections.quickTake), 120);
+  sections.keyDrivers = [...new Set(sections.keyDrivers.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 3);
+  sections.risks = [...new Set(sections.risks.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 2);
+  sections.angles = [...new Set(sections.angles.map((item) => compactLine(cleanAgentText(item), 70)).filter(Boolean))].slice(0, 3);
 
   return sections;
 }
@@ -137,6 +136,7 @@ function normalizeAgentAnalysis(rawContent) {
 export default function ResultsPanel({ data }) {
   const { thesis, keywords, totalMarketsFound, picks, agentAnalysis, thesisMapping } = data;
   const compactAgentAnalysis = normalizeAgentAnalysis(agentAnalysis?.content);
+  const [expandedWhy, setExpandedWhy] = useState({});
 
   return (
     <div style={styles.card}>
@@ -156,7 +156,17 @@ export default function ResultsPanel({ data }) {
       {/* Agent Analysis Section */}
       {compactAgentAnalysis && (
         <div style={styles.agentSection}>
-          <div style={styles.agentTitle}>🤖 ThesisResearcher Agent</div>
+          <div style={styles.agentHeader}>
+            <div style={styles.agentTitle}>Thesis Researcher Agent</div>
+            {typeof compactAgentAnalysis.confidence === "number" && (
+              <div style={styles.agentConfidenceTop}>
+                <span style={styles.agentConfidenceLabel}>Confidence</span>
+                <span style={styles.agentConfidenceValue}>
+                  {(compactAgentAnalysis.confidence * 100).toFixed(0)}%
+                </span>
+              </div>
+            )}
+          </div>
           <div style={styles.quickTakeRow}>
             <span style={styles.quickTakePill}>Quick Take</span>
             <span style={styles.quickTakeInline}>{compactAgentAnalysis.quickTake}</span>
@@ -197,46 +207,25 @@ export default function ResultsPanel({ data }) {
             )}
           </div>
 
-          {typeof compactAgentAnalysis.confidence === "number" && (
-            <div style={styles.agentConfidence}>
-              Confidence {(compactAgentAnalysis.confidence * 100).toFixed(0)}%
-            </div>
-          )}
         </div>
       )}
 
-      {/* Thesis Mapping Section */}
-      {thesisMapping?.markets && thesisMapping.markets.length > 0 && (
-        <div style={styles.mappingSection}>
-          <div style={styles.sectionTitle}>
-            📊 Cross-Platform Markets (Confidence: {(thesisMapping.confidence_score * 100).toFixed(0)}%)
-          </div>
-          <div style={styles.mappingGrid}>
-            {thesisMapping.markets.map((m, i) => (
-              <div key={i} style={styles.mappingCard}>
-                <div style={styles.platform}>{m.platform}</div>
-                <div style={styles.mappingQuestion}>{compactLine(m.question, 112)}</div>
-                {m.estimated_probability && (
-                  <div style={styles.probability}>
-                    Estimated: {(m.estimated_probability * 100).toFixed(0)}%
-                  </div>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
+      
 
       {picks.length === 0 ? (
         <div style={{ textAlign: "center", color: "var(--text-dim)", padding: 40 }}>No relevant markets found.</div>
       ) : (
         <div>
-          <div style={styles.sectionTitle}>🎯 Top Market Picks</div>
+          <div style={styles.sectionTitle}>Top Market Picks</div>
           {picks.map((pick, i) => {
+            const pickKey = pick.id || i;
             const isYes = pick.suggested_position === "YES";
             const suggestedProb = toProbability(pick.current_price);
             const explicitYesProb = toProbability(pick.yes_odds);
             const explicitNoProb = toProbability(pick.no_odds);
+            const whyText = typeof pick.one_liner === "string" ? pick.one_liner.trim() : "";
+            const isWhyExpanded = Boolean(expandedWhy[pickKey]);
+            const canExpandWhy = whyText.length > 96;
             const yesProb =
               explicitYesProb ??
               (isYes && suggestedProb !== null
@@ -258,17 +247,44 @@ export default function ResultsPanel({ data }) {
             const scoreColor = pick.relevance_score >= 8 ? "var(--green)" : pick.relevance_score >= 5 ? "#FFB800" : "var(--text-dim)";
             const platform = pick.platform || 'Polymarket';
             return (
-              <div key={pick.id || i} style={styles.row}>
-                <div style={styles.rank}>#{i + 1}</div>
+              <div key={pickKey} style={styles.row}>
+                <div
+                  style={{
+                    ...styles.rank,
+                    ...(pick.image
+                      ? {
+                          backgroundImage: `linear-gradient(rgba(11,17,38,0.58), rgba(11,17,38,0.58)), url(${pick.image})`,
+                        }
+                      : {}),
+                  }}
+                >
+                  #{i + 1}
+                </div>
                 <div style={{ flex: 1 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", gap: 12 }}>
                     <div style={styles.question}>{pick.question}</div>
                     <div style={{ ...styles.score, color: scoreColor }}>{pick.relevance_score}/10</div>
                   </div>
-                    <div style={styles.whyRow}>
-                      <span style={styles.whyLabel}>WHY</span>
-                      <span style={styles.whyText}>{compactLine(pick.one_liner, 96)}</span>
-                    </div>
+                  <div style={styles.whyRow}>
+                    <span style={styles.whyLabel}>WHY</span>
+                    <span style={isWhyExpanded ? styles.whyTextExpanded : styles.whyText}>
+                      {isWhyExpanded ? whyText : compactLine(whyText, 96)}
+                    </span>
+                    {canExpandWhy && (
+                      <button
+                        type="button"
+                        style={styles.whyToggle}
+                        onClick={() =>
+                          setExpandedWhy((prev) => ({
+                            ...prev,
+                            [pickKey]: !prev[pickKey],
+                          }))
+                        }
+                      >
+                        {isWhyExpanded ? "Less" : "More"}
+                      </button>
+                    )}
+                  </div>
                   <div style={styles.bottomRow}>
                     <span style={styles.platformBadge}>{platform}</span>
                     <span style={styles.oddsGroup}>
@@ -316,8 +332,22 @@ const styles = {
     display: "flex", gap: 14, padding: "16px 0", borderBottom: "1px solid var(--border2)",
   },
   rank: {
-    width: 32, height: 32, borderRadius: 8, background: "var(--blue)", color: "#fff",
-    display: "flex", alignItems: "center", justifyContent: "center", fontWeight: 700, fontSize: 13, flexShrink: 0,
+    width: 44,
+    height: 44,
+    borderRadius: 10,
+    background: "var(--blue)",
+    backgroundSize: "cover",
+    backgroundPosition: "center",
+    color: "#fff",
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+    fontWeight: 800,
+    fontSize: 13,
+    flexShrink: 0,
+    textShadow: "0 1px 6px rgba(0,0,0,0.45)",
+    border: "1px solid rgba(255,255,255,0.18)",
+    boxShadow: "0 6px 16px rgba(11,17,38,0.14)",
   },
   question: { fontSize: 13, fontWeight: 600, lineHeight: 1.4, flex: 1 },
   score: { fontSize: 13, fontWeight: 700, flexShrink: 0, fontFamily: "'DM Mono', monospace" },
@@ -342,6 +372,28 @@ const styles = {
     border: "1px solid var(--border)",
     borderRadius: 99,
     padding: "3px 8px",
+  },
+  whyTextExpanded: {
+    fontSize: 11,
+    color: "var(--text-mid)",
+    lineHeight: 1.5,
+    background: "var(--surface)",
+    border: "1px solid var(--border)",
+    borderRadius: 12,
+    padding: "8px 10px",
+    flex: 1,
+  },
+  whyToggle: {
+    border: "none",
+    background: "transparent",
+    color: "var(--blue)",
+    fontSize: 10,
+    fontWeight: 700,
+    fontFamily: "'DM Mono', monospace",
+    letterSpacing: 0.4,
+    cursor: "pointer",
+    padding: "2px 4px",
+    flexShrink: 0,
   },
   bottomRow: { display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" },
   oddsGroup: {
@@ -398,7 +450,39 @@ const styles = {
     background: "var(--blue-light)", border: "1px solid rgba(26,92,255,0.2)", borderRadius: 12,
     padding: "16px 18px", marginBottom: 20,
   },
-  agentTitle: { fontSize: 12, fontWeight: 700, color: "var(--blue)", marginBottom: 10, letterSpacing: 0.5 },
+  agentHeader: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 10,
+    flexWrap: "wrap",
+  },
+  agentTitle: { fontSize: 12, fontWeight: 700, color: "var(--blue)", letterSpacing: 0.5 },
+  agentConfidenceTop: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 999,
+    background: "var(--surface)",
+    border: "1px solid rgba(26,92,255,0.2)",
+    boxShadow: "0 2px 8px rgba(26,92,255,0.06)",
+  },
+  agentConfidenceLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 0.8,
+    textTransform: "uppercase",
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono', monospace",
+  },
+  agentConfidenceValue: {
+    fontSize: 13,
+    fontWeight: 800,
+    color: "var(--blue)",
+    fontFamily: "'DM Mono', monospace",
+  },
   quickTakeRow: {
     display: "flex",
     alignItems: "center",
@@ -485,19 +569,6 @@ const styles = {
     border: "1px solid rgba(0,196,140,0.25)",
     fontWeight: 600,
     lineHeight: 1.2,
-  },
-  agentConfidence: {
-    marginTop: 10,
-    display: "inline-flex",
-    alignItems: "center",
-    fontSize: 11,
-    fontWeight: 700,
-    fontFamily: "'DM Mono', monospace",
-    color: "var(--blue)",
-    background: "var(--surface)",
-    border: "1px solid var(--border)",
-    borderRadius: 99,
-    padding: "4px 10px",
   },
   mappingSection: {
     background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12,

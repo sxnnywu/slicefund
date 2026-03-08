@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import usePhantom from "../hooks/usePhantom.js";
+import { getAllTrending } from "../lib/trendingCache.js";
 
 const STORAGE_KEY = "slicefund_baskets";
 
@@ -136,21 +137,7 @@ function buildLiveBasket(name, sourceLabel, items) {
 }
 
 async function fetchLiveBaskets() {
-  const [polyRes, kalshiRes, manifoldRes] = await Promise.all([
-    fetch("/api/polymarket/trending"),
-    fetch("/api/kalshi/trending"),
-    fetch("/api/manifold/trending"),
-  ]);
-
-  const [polyJson, kalshiJson, manifoldJson] = await Promise.all([
-    polyRes.json(),
-    kalshiRes.json(),
-    manifoldRes.json(),
-  ]);
-
-  if (!polyRes.ok || !kalshiRes.ok || !manifoldRes.ok) {
-    throw new Error(polyJson?.error || kalshiJson?.error || manifoldJson?.error || "Failed to load live baskets");
-  }
+  const { polymarket: polyJson, kalshi: kalshiJson, manifold: manifoldJson } = await getAllTrending();
 
   const polyMarkets = (polyJson?.markets || []).slice(0, 3).map((market) => ({
     question: market.question,

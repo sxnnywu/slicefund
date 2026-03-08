@@ -137,6 +137,9 @@ app.use((req, res, next) => {
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const KALSHI_MARKET_DATA_BASE_URL = "https://api.elections.kalshi.com/trade-api/v2";
 const GEMINI_MODEL_NAME = "gemini-2.5-flash-lite";
+const GEMINI_MIN_GAP_MS = 2500;
+let nextGeminiRequestAt = 0;
+let geminiRequestChain = Promise.resolve();
 
 function isGeminiPermanentFailure(message) {
   const normalized = String(message || "").toLowerCase();
@@ -273,8 +276,36 @@ async function fetchKalshiMarkets(params = {}) {
 }
 
 // --- Helper: call Gemini with retry ---
+function wait(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+async function scheduleGeminiRequest() {
+  const previous = geminiRequestChain;
+  let release;
+  geminiRequestChain = new Promise((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  const now = Date.now();
+  const delay = Math.max(0, nextGeminiRequestAt - now);
+  if (delay > 0) {
+    console.log(`    Gemini throttle: waiting ${Math.ceil(delay / 1000)}s before next request...`);
+    await wait(delay);
+  }
+
+  nextGeminiRequestAt = Date.now() + GEMINI_MIN_GAP_MS;
+
+  return () => {
+    release();
+  };
+}
+
 async function geminiCall(prompt, retries = 3) {
   for (let i = 0; i < retries; i++) {
+    const release = await scheduleGeminiRequest();
     try {
       const model = genAI.getGenerativeModel({ model: GEMINI_MODEL_NAME });
       const result = await model.generateContent(prompt);
@@ -292,10 +323,12 @@ async function geminiCall(prompt, retries = 3) {
       if (shouldRetry) {
         const wait = (i + 1) * 3000; // 3s, 6s
         console.log(`    Gemini request failed (${message.includes("404") ? "model unavailable" : "rate limited"}), waiting ${wait / 1000}s...`);
-        await new Promise((r) => setTimeout(r, wait));
+        nextGeminiRequestAt = Math.max(nextGeminiRequestAt, Date.now() + wait);
       } else {
         throw err;
       }
+    } finally {
+      release();
     }
   }
 }
@@ -304,13 +337,49 @@ async function geminiCall(prompt, retries = 3) {
 async function parseThesis(thesis, thesisHistory = []) {
   const historyContext = formatThesisHistoryContext(thesisHistory);
   const text = await geminiCall(
-    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets on Polymarket. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"${historyContext}`
+    `You are a financial research assistant. Given a user's market thesis, extract 3-5 concise search keywords or phrases that would help find relevant prediction markets across Polymarket, Kalshi, and Manifold. Favor portable concepts that work across platforms, not site-specific phrasing. Return ONLY a JSON array of strings, nothing else.\n\nUser thesis: "${thesis}"${historyContext}`
   );
   const match = text.match(/\[[\s\S]*\]/);
   if (match) {
     return JSON.parse(match[0]);
   }
   return [thesis.slice(0, 50)];
+}
+
+function tokenizeSearchText(text) {
+  return String(text || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, " ")
+    .split(/\s+/)
+    .filter((token) => token.length > 2);
+}
+
+function marketMatchesKeyword(keyword, values) {
+  const normalizedKeyword = String(keyword || "").toLowerCase().trim();
+  if (!normalizedKeyword) return false;
+
+  const haystack = values
+    .filter(Boolean)
+    .map((value) => String(value).toLowerCase())
+    .join(" ");
+
+  if (haystack.includes(normalizedKeyword)) {
+    return true;
+  }
+
+  const keywordTokens = tokenizeSearchText(normalizedKeyword);
+  if (keywordTokens.length === 0) {
+    return false;
+  }
+
+  const haystackTokens = new Set(tokenizeSearchText(haystack));
+  const overlap = keywordTokens.filter((token) => haystackTokens.has(token)).length;
+
+  if (keywordTokens.length === 1) {
+    return overlap === 1;
+  }
+
+  return overlap >= Math.max(2, Math.ceil(keywordTokens.length * 0.6));
 }
 
 // --- Agent 2: Search Polymarket for relevant markets ---
@@ -355,7 +424,7 @@ async function searchKalshi(keywords) {
   let markets = [];
 
   try {
-    markets = await fetchKalshiMarkets({ limit: 200 });
+    markets = await fetchKalshiMarkets({ limit: 1000 });
   } catch (err) {
     console.error("Kalshi market fetch failed:", err.message);
     return [];
@@ -363,11 +432,15 @@ async function searchKalshi(keywords) {
 
   for (const keyword of keywords) {
     try {
-      const keywordLower = keyword.toLowerCase();
       const matchedMarkets = markets.filter((market) =>
-        [market.question, market.subtitle, market.eventTicker, market.ticker]
-          .filter(Boolean)
-          .some((value) => String(value).toLowerCase().includes(keywordLower))
+        marketMatchesKeyword(keyword, [
+          market.question,
+          market.subtitle,
+          market.eventTicker,
+          market.ticker,
+          market.rulesPrimary,
+          market.rulesSecondary,
+        ])
       );
 
       allMarkets.push(...matchedMarkets);
@@ -388,6 +461,25 @@ async function searchKalshi(keywords) {
 // --- Agent 2c: Search Manifold for relevant markets ---
 async function searchManifold(keywords) {
   const allMarkets = [];
+  let catalog = [];
+
+  try {
+    const response = await axios.get(
+      "https://api.manifold.markets/v0/markets",
+      {
+        params: {
+          limit: 500,
+        },
+        timeout: 10000,
+      }
+    );
+
+    catalog = (response.data || []).filter((market) =>
+      market.isResolved === false && market.closeTime > Date.now()
+    );
+  } catch (err) {
+    console.error("Manifold catalog fetch failed:", err.message);
+  }
 
   for (const keyword of keywords) {
     try {
@@ -396,14 +488,24 @@ async function searchManifold(keywords) {
         {
           params: {
             term: keyword,
-            limit: 10,
+            limit: 50,
           },
           timeout: 8000,
         }
       );
-      
-      const markets = response.data || [];
-      
+
+      const searchMatches = response.data || [];
+      const catalogMatches = catalog.filter((market) =>
+        marketMatchesKeyword(keyword, [
+          market.question,
+          market.description,
+          market.textDescription,
+          market.slug,
+        ])
+      );
+
+      const markets = [...searchMatches, ...catalogMatches];
+
       for (const market of markets) {
         if (market.isResolved === false && market.closeTime > Date.now()) {
           allMarkets.push({
