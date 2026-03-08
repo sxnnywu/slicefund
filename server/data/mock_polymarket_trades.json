@@ -214,5 +214,59 @@
       "target_weight": 0.25
     },
     "createdAt": "2026-03-07T22:51:49.789Z"
+  },
+  {
+    "id": "pm-1772936846523-22a7c220",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
+    "market": "BitBoy convicted?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.1605,
+    "size": 33.33333333333333,
+    "status": "FILLED",
+    "filledSize": 33.33333333333333,
+    "avgPrice": 0.1605,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3333333333333333
+    },
+    "createdAt": "2026-03-08T02:27:26.523Z"
+  },
+  {
+    "id": "pm-1772936846523-2cbdc874",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
+    "market": "Russia-Ukraine Ceasefire before GTA VI?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.565,
+    "size": 33.33333333333333,
+    "status": "FILLED",
+    "filledSize": 33.33333333333333,
+    "avgPrice": 0.565,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3333333333333333
+    },
+    "createdAt": "2026-03-08T02:27:26.523Z"
+  },
+  {
+    "id": "pm-1772936846523-7dd456f1",
+    "walletAddress": "HUueCsuZ1ca2r6myGk9bKeP4vemE9HKA7WPxhkH8UwUU",
+    "solanaSignature": "CrYtxAQjuoRkaztgS28aNCf0F+Xec0TEnt0rwJf+jdHPOQHRUGK60dTQ8lvXadRVUnWKQPHgK5kr3RIwuJdTCg==",
+    "market": "New Rihanna Album before GTA VI?",
+    "platform": "Polymarket",
+    "side": "BUY",
+    "price": 0.565,
+    "size": 33.33333333333333,
+    "status": "FILLED",
+    "filledSize": 33.33333333333333,
+    "avgPrice": 0.565,
+    "source": "mock_basket_buy",
+    "metadata": {
+      "target_weight": 0.3333333333333333
+    },
+    "createdAt": "2026-03-08T02:27:26.523Z"
   }
 ]
