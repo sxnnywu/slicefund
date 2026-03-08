@@ -59,6 +59,47 @@ function formatOdds(value) {
   return `${Math.round(probability * 100)}¢`;
 }
 
+function getConfidenceStyles(confidence) {
+  const value = Number(confidence);
+  if (!Number.isFinite(value)) {
+    return {
+      background: "var(--surface)",
+      borderColor: "rgba(26,92,255,0.2)",
+      labelColor: "var(--text-dim)",
+      valueColor: "var(--blue)",
+      shadow: "0 2px 8px rgba(26,92,255,0.06)",
+    };
+  }
+
+  if (value >= 0.75) {
+    return {
+      background: "rgba(0,196,140,0.1)",
+      borderColor: "rgba(0,196,140,0.28)",
+      labelColor: "rgba(0,124,90,0.9)",
+      valueColor: "var(--green)",
+      shadow: "0 4px 14px rgba(0,196,140,0.14)",
+    };
+  }
+
+  if (value >= 0.5) {
+    return {
+      background: "rgba(255,184,0,0.12)",
+      borderColor: "rgba(255,184,0,0.26)",
+      labelColor: "#9A6B00",
+      valueColor: "#C88700",
+      shadow: "0 4px 14px rgba(255,184,0,0.14)",
+    };
+  }
+
+  return {
+    background: "rgba(255,77,106,0.1)",
+    borderColor: "rgba(255,77,106,0.24)",
+    labelColor: "#B23A54",
+    valueColor: "var(--red)",
+    shadow: "0 4px 14px rgba(255,77,106,0.12)",
+  };
+}
+
 function normalizeAgentAnalysis(rawContent) {
   if (typeof rawContent !== "string" || rawContent.trim().length === 0) {
     return null;
@@ -126,9 +167,9 @@ function normalizeAgentAnalysis(rawContent) {
   }
 
   sections.quickTake = compactLine(cleanAgentText(sections.quickTake), 120);
-  sections.keyDrivers = [...new Set(sections.keyDrivers.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 3);
+  sections.keyDrivers = [...new Set(sections.keyDrivers.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 2);
   sections.risks = [...new Set(sections.risks.map((item) => compactLine(cleanAgentText(item), 64)).filter(Boolean))].slice(0, 2);
-  sections.angles = [...new Set(sections.angles.map((item) => compactLine(cleanAgentText(item), 70)).filter(Boolean))].slice(0, 3);
+  sections.angles = [...new Set(sections.angles.map((item) => compactLine(cleanAgentText(item), 70)).filter(Boolean))].slice(0, 2);
 
   return sections;
 }
@@ -137,6 +178,10 @@ export default function ResultsPanel({ data, onCreateBasket }) {
   const { thesis, keywords, totalMarketsFound, picks, agentAnalysis, thesisMapping } = data;
   const compactAgentAnalysis = normalizeAgentAnalysis(agentAnalysis?.content);
   const [expandedWhy, setExpandedWhy] = useState({});
+  const confidenceStyles =
+    typeof compactAgentAnalysis?.confidence === "number"
+      ? getConfidenceStyles(compactAgentAnalysis.confidence)
+      : null;
 
   return (
     <div style={styles.card}>
@@ -158,54 +203,81 @@ export default function ResultsPanel({ data, onCreateBasket }) {
         <div style={styles.agentSection}>
           <div style={styles.agentHeader}>
             <div style={styles.agentTitle}>Thesis Researcher Agent</div>
-            {typeof compactAgentAnalysis.confidence === "number" && (
-              <div style={styles.agentConfidenceTop}>
-                <span style={styles.agentConfidenceLabel}>Confidence</span>
-                <span style={styles.agentConfidenceValue}>
-                  {(compactAgentAnalysis.confidence * 100).toFixed(0)}%
-                </span>
-              </div>
-            )}
-          </div>
-          <div style={styles.quickTakeRow}>
-            <span style={styles.quickTakePill}>Quick Take</span>
-            <span style={styles.quickTakeInline}>{compactAgentAnalysis.quickTake}</span>
           </div>
 
-          <div style={styles.agentGrid}>
+          <div style={styles.agentHybridGrid}>
             {compactAgentAnalysis.keyDrivers.length > 0 && (
-              <div style={styles.agentBlock}>
+              <div style={styles.influencePanel}>
                 <div style={styles.agentBlockTitle}>Key Drivers</div>
-                <div style={styles.agentChips}>
+                <div style={styles.influenceNodes}>
                   {compactAgentAnalysis.keyDrivers.map((item, index) => (
-                    <span key={`driver-${index}`} style={styles.agentChip}>{item}</span>
+                    <div key={`driver-${index}`} style={styles.influenceNode}>
+                      <span style={styles.influenceDot} />
+                      <span style={styles.influenceText}>{item}</span>
+                    </div>
                   ))}
                 </div>
               </div>
             )}
+
+            <div style={styles.thesisCenterCard}>
+              <div style={styles.thesisCenterTopRow}>
+                <div style={styles.thesisCenterLabel}>Current Thesis</div>
+                {typeof compactAgentAnalysis.confidence === "number" && (
+                  <div
+                    style={{
+                      ...styles.agentConfidenceInline,
+                      background: confidenceStyles.background,
+                      borderColor: confidenceStyles.borderColor,
+                      boxShadow: confidenceStyles.shadow,
+                    }}
+                  >
+                    <span style={{ ...styles.agentConfidenceLabel, color: confidenceStyles.labelColor }}>
+                      Confidence
+                    </span>
+                    <span style={{ ...styles.agentConfidenceValue, color: confidenceStyles.valueColor }}>
+                      {(compactAgentAnalysis.confidence * 100).toFixed(0)}%
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div style={styles.thesisCenterValue}>{compactAgentAnalysis.quickTake}</div>
+              <div style={styles.thesisCenterMeter}>
+                <div style={styles.thesisCenterMeterFill} />
+              </div>
+              <div style={styles.thesisCenterMeta}>
+                <span>Support vs risk</span>
+              </div>
+            </div>
 
             {compactAgentAnalysis.risks.length > 0 && (
-              <div style={styles.agentBlock}>
+              <div style={styles.influencePanel}>
                 <div style={styles.agentBlockTitle}>Risks / Contradictions</div>
-                <div style={styles.agentChips}>
+                <div style={styles.influenceNodes}>
                   {compactAgentAnalysis.risks.map((item, index) => (
-                    <span key={`risk-${index}`} style={styles.agentChipRisk}>{item}</span>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {compactAgentAnalysis.angles.length > 0 && (
-              <div style={styles.agentBlock}>
-                <div style={styles.agentBlockTitle}>Best Market Angles</div>
-                <div style={styles.agentChips}>
-                  {compactAgentAnalysis.angles.map((item, index) => (
-                    <span key={`angle-${index}`} style={styles.agentChipAngle}>{item}</span>
+                    <div key={`risk-${index}`} style={styles.influenceNodeRisk}>
+                      <span style={styles.influenceDotRisk} />
+                      <span style={styles.influenceTextRisk}>{item}</span>
+                    </div>
                   ))}
                 </div>
               </div>
             )}
           </div>
+
+          {compactAgentAnalysis.angles.length > 0 && (
+            <div style={styles.strategyRail}>
+              <div style={styles.agentBlockTitle}>Best Market Angles</div>
+              <div style={styles.strategyGrid}>
+                {compactAgentAnalysis.angles.map((item, index) => (
+                  <div key={`angle-${index}`} style={styles.strategyCard}>
+                    <div style={styles.strategyIndex}>0{index + 1}</div>
+                    <div style={styles.strategyText}>{item}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
         </div>
       )}
@@ -254,12 +326,12 @@ export default function ResultsPanel({ data, onCreateBasket }) {
                 onMouseOver={(e) => e.target.style.opacity = "0.9"}
                 onMouseOut={(e) => e.target.style.opacity = "1"}
               >
-                📦 Create Basket from These Markets
+                Create Basket from These Markets
               </button>
             </div>
           ) : (
             <div style={{ marginBottom: 20, padding: "12px 16px", background: "var(--red-light)", borderRadius: 10, color: "var(--text-dim)", fontSize: 12 }}>
-              ⚠️ No cross-platform market mapping available
+              No cross-platform market mapping available
             </div>
           )}
           <div style={styles.sectionTitle}>Top Market Picks</div>
@@ -515,6 +587,15 @@ const styles = {
     border: "1px solid rgba(26,92,255,0.2)",
     boxShadow: "0 2px 8px rgba(26,92,255,0.06)",
   },
+  agentConfidenceInline: {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: 8,
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid rgba(26,92,255,0.2)",
+    boxShadow: "0 2px 8px rgba(26,92,255,0.06)",
+  },
   agentConfidenceLabel: {
     fontSize: 10,
     fontWeight: 700,
@@ -561,16 +642,127 @@ const styles = {
     textOverflow: "ellipsis",
     whiteSpace: "nowrap",
   },
-  agentGrid: {
+  agentHybridGrid: {
     display: "grid",
     gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))",
-    gap: 10,
+    gap: 12,
   },
-  agentBlock: {
+  influencePanel: {
     background: "var(--surface)",
     border: "1px solid var(--border)",
-    borderRadius: 10,
-    padding: "10px 12px",
+    borderRadius: 14,
+    padding: "12px 12px 10px",
+  },
+  influenceNodes: {
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  influenceNode: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "10px 10px",
+    borderRadius: 12,
+    background: "rgba(26,92,255,0.06)",
+    border: "1px solid rgba(26,92,255,0.1)",
+  },
+  influenceNodeRisk: {
+    display: "flex",
+    alignItems: "flex-start",
+    gap: 10,
+    padding: "10px 10px",
+    borderRadius: 12,
+    background: "rgba(255,77,106,0.08)",
+    border: "1px solid rgba(255,77,106,0.12)",
+  },
+  influenceDot: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: "var(--blue)",
+    boxShadow: "0 0 0 4px rgba(26,92,255,0.12)",
+    marginTop: 5,
+    flexShrink: 0,
+  },
+  influenceDotRisk: {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: "var(--red)",
+    boxShadow: "0 0 0 4px rgba(255,77,106,0.12)",
+    marginTop: 5,
+    flexShrink: 0,
+  },
+  influenceText: {
+    fontSize: 12,
+    fontWeight: 600,
+    lineHeight: 1.45,
+    color: "var(--text)",
+  },
+  influenceTextRisk: {
+    fontSize: 12,
+    fontWeight: 600,
+    lineHeight: 1.45,
+    color: "var(--red)",
+  },
+  thesisCenterCard: {
+    borderRadius: 16,
+    border: "1px solid rgba(26,92,255,0.16)",
+    background: "var(--surface)",
+    padding: "18px 16px",
+    display: "flex",
+    flexDirection: "column",
+    justifyContent: "center",
+    minHeight: 128,
+  },
+  thesisCenterLabel: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 1,
+    textTransform: "uppercase",
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono', monospace",
+    marginBottom: 8,
+  },
+  thesisCenterTopRow: {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    gap: 12,
+    marginBottom: 8,
+    flexWrap: "wrap",
+  },
+  thesisCenterValue: {
+    fontSize: 15,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    color: "var(--text)",
+  },
+  thesisCenterMeter: {
+    position: "relative",
+    height: 8,
+    borderRadius: 999,
+    background: "linear-gradient(90deg, rgba(26,92,255,0.18), rgba(255,77,106,0.14))",
+    overflow: "hidden",
+    marginTop: 16,
+  },
+  thesisCenterMeterFill: {
+    width: "58%",
+    height: "100%",
+    borderRadius: 999,
+    background: "linear-gradient(90deg, var(--blue), #5f8dff)",
+  },
+  thesisCenterMeta: {
+    marginTop: 10,
+    display: "flex",
+    justifyContent: "space-between",
+    gap: 10,
+    fontSize: 10,
+    color: "var(--text-dim)",
+    fontFamily: "'DM Mono', monospace",
+    textTransform: "uppercase",
+    letterSpacing: 0.6,
   },
   agentBlockTitle: {
     fontSize: 10,
@@ -581,40 +773,40 @@ const styles = {
     marginBottom: 6,
     fontFamily: "'DM Mono', monospace",
   },
-  agentChips: {
-    display: "flex",
-    flexWrap: "wrap",
-    gap: 6,
-  },
-  agentChip: {
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 99,
-    background: "var(--blue-light)",
-    color: "var(--text)",
+  strategyRail: {
+    marginTop: 12,
+    background: "rgba(255,255,255,0.72)",
     border: "1px solid var(--border)",
-    fontWeight: 600,
-    lineHeight: 1.2,
+    borderRadius: 14,
+    padding: "14px",
   },
-  agentChipRisk: {
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 99,
-    background: "var(--red-light)",
-    color: "var(--red)",
-    border: "1px solid rgba(255,77,106,0.25)",
-    fontWeight: 600,
-    lineHeight: 1.2,
+  strategyGrid: {
+    display: "grid",
+    gridTemplateColumns: "repeat(auto-fit, minmax(180px, 1fr))",
+    gap: 10,
   },
-  agentChipAngle: {
-    fontSize: 11,
-    padding: "4px 8px",
-    borderRadius: 99,
-    background: "var(--green-light)",
+  strategyCard: {
+    minHeight: 88,
+    borderRadius: 14,
+    padding: "12px 12px 14px",
+    background: "var(--surface)",
+    border: "1px solid rgba(0,196,140,0.16)",
+    display: "flex",
+    flexDirection: "column",
+    gap: 10,
+  },
+  strategyIndex: {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: 1,
     color: "var(--green)",
-    border: "1px solid rgba(0,196,140,0.25)",
-    fontWeight: 600,
-    lineHeight: 1.2,
+    fontFamily: "'DM Mono', monospace",
+  },
+  strategyText: {
+    fontSize: 13,
+    fontWeight: 700,
+    lineHeight: 1.4,
+    color: "var(--text)",
   },
   mappingSection: {
     background: "var(--green-light)", border: "1px solid rgba(0,196,140,0.2)", borderRadius: 12,
